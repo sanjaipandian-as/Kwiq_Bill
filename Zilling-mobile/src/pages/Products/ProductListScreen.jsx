@@ -1,0 +1,525 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import { Plus, Search, Edit, Trash2, CheckSquare, Package, Tag, Filter, Upload, AlertCircle, ChevronRight, ChevronDown, Barcode, Layers, Box } from 'lucide-react-native';
+import { useProducts } from '../../context/ProductContext';
+import ProductDrawer from './ProductDrawer';
+import ImportProductModal from '../Billing/components/ImportProductModal';
+import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { CategoryFilter } from '../../components/Expenses/CategoryFilter';
+
+const ProductsListScreen = ({ navigation }) => {
+  const { products, loading, deleteProduct, bulkDeleteProducts, addProduct, updateProduct, fetchProducts, importProducts } = useProducts();
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedRows, setSelectedRows] = useState(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const categories = useMemo(() => {
+    const cats = new Set(products.map(p => p.category).filter(c => c && c.trim() !== ''));
+    return Array.from(cats).sort();
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    return (products || []).filter(p => {
+      const name = (p.name || '').toLowerCase();
+      const sku = (p.sku || p.barcode || '').toLowerCase();
+      const cat = (p.category || '').toLowerCase();
+      const search = searchTerm.toLowerCase();
+
+      const matchSearch = name.includes(search) || sku.includes(search) || cat.includes(search);
+      const matchCat = !selectedCategory || p.category === selectedCategory;
+      return matchSearch && matchCat;
+    });
+  }, [products, searchTerm, selectedCategory]);
+
+  const lowStockProducts = useMemo(() => {
+    let alerts = [];
+    products.forEach(p => {
+      const min = p.minStock || 10;
+      // Check main stock
+      if ((p.stock || 0) <= min) {
+        alerts.push({ ...p, alertLabel: `${p.stock} units left` });
+      }
+
+      // Check variants
+      try {
+        const variants = typeof p.variants === 'string' ? JSON.parse(p.variants) : (p.variants || []);
+        if (Array.isArray(variants)) {
+          variants.forEach((v, vIdx) => {
+            const vStock = parseFloat(v.stock) || 0;
+            if (vStock <= min) {
+              const variantIdentifier = v.name || v.sku || `var-${vIdx}`;
+              alerts.push({
+                ...p,
+                id: `${p.id}-${variantIdentifier}`, // Unique Key
+                _realId: p.id,
+                name: `${p.name} (${variantIdentifier})`,
+                alertLabel: `${vStock} units left`
+              });
+            }
+          });
+        }
+      } catch (e) { }
+    });
+    return alerts;
+  }, [products]);
+
+  const toggleSelect = (id) => {
+    const newSet = new Set(selectedRows);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+
+    if (newSet.size === 0) setSelectionMode(false);
+    setSelectedRows(newSet);
+  };
+
+  const handleAddNew = () => {
+    setEditingProduct(null);
+    setIsDrawerOpen(true);
+  };
+
+  const handleEdit = (product) => {
+    setEditingProduct(product);
+    setIsDrawerOpen(true);
+  };
+
+  const handleSaveProduct = async (productData) => {
+    try {
+      if (editingProduct) {
+        await updateProduct(editingProduct.id, productData);
+      } else {
+        await addProduct(productData);
+      }
+      setIsDrawerOpen(false);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save product');
+    }
+  };
+
+  const handleDelete = (id) => {
+    Alert.alert('Delete Product', 'This action cannot be undone. Delete this item?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            await deleteProduct(id);
+          } catch (err) {
+            Alert.alert('Error', 'Failed to delete product');
+          }
+        }
+      }
+    ]);
+  };
+
+  const renderItem = ({ item }) => {
+    const selected = selectedRows.has(item.id);
+    const inStock = item.stock > 0;
+    const isLowStock = item.stock <= (item.minStock || 10);
+    const isExpanded = expandedId === item.id;
+
+    let variants = [];
+    try {
+      variants = typeof item.variants === 'string' ? JSON.parse(item.variants) : (item.variants || []);
+    } catch (e) {
+      variants = [];
+    }
+
+    return (
+      <TouchableOpacity
+        style={[styles.proCard, selected && styles.proCardSelected]}
+        onPress={() => selectionMode ? toggleSelect(item.id) : handleEdit(item)}
+        onLongPress={() => {
+          setSelectionMode(true);
+          toggleSelect(item.id);
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardMainContent}>
+          <View style={styles.cardHeader}>
+            <View style={styles.iconContainer}>
+              {selectionMode ? (
+                <View style={[styles.checkbox, selected && styles.checkboxActive]}>
+                  {selected && <CheckSquare size={16} color="#fff" strokeWidth={3} />}
+                </View>
+              ) : (
+                <View style={styles.proIconBox}>
+                  <Package size={22} color="#000" strokeWidth={2} />
+                </View>
+              )}
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <View style={styles.titleRow}>
+                <Text style={styles.proProductName} numberOfLines={1}>{item.name}</Text>
+                {item.sku && (
+                  <View style={styles.skuBadge}>
+                    <Barcode size={10} color="#94a3b8" />
+                    <Text style={styles.skuText}>{item.sku}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.tagRow}>
+                <View style={styles.proCategoryBadge}>
+                  <Tag size={10} color="#64748b" />
+                  <Text style={styles.proCategoryText}>{item.category || 'NO CATEGORY'}</Text>
+                </View>
+                {item.brand && (
+                  <Text style={styles.brandText}>• {item.brand}</Text>
+                )}
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.metricsGrid}>
+            <View style={styles.metricItem}>
+              <Text style={styles.metricLabel}>SELLING PRICE</Text>
+              <Text style={styles.metricValue}>₹{parseFloat(item.price || 0).toLocaleString()}</Text>
+            </View>
+            <View style={[styles.metricItem, styles.metricDivider]}>
+              <Text style={styles.metricLabel}>INVENTORY</Text>
+              <View style={styles.stockRow}>
+                <Text style={[styles.metricValue, !inStock ? styles.redText : isLowStock ? styles.orangeText : styles.greenText]}>
+                  {item.stock} {item.unit || 'pcs'}
+                </Text>
+                {!inStock ? (
+                  <AlertCircle size={14} color="#ef4444" />
+                ) : isLowStock ? (
+                  <AlertCircle size={14} color="#f59e0b" />
+                ) : null}
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.proVariantsSection}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Layers size={12} color="#94a3b8" />
+                <Text style={styles.variantsTitle}>{variants.length > 0 ? `${variants.length} VARIANTS AVAILABLE` : 'NO VARIANTS'}</Text>
+              </View>
+              <Text style={styles.actionMicroLabel}>MANAGE</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: 10, gap: 12 }}>
+              <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {variants.length > 0 ? (
+                  variants.map((v, i) => (
+                    <View key={i} style={styles.variantGridPill}>
+                      <Text style={styles.variantPillText} numberOfLines={1}>
+                        {v.name || 'V'}
+                        {v.stock !== undefined ? ` — ${v.stock}` : ''}
+                      </Text>
+                    </View>
+                  ))
+                ) : (
+                  <View style={{ height: 44, justifyContent: 'center' }}>
+                    <Text style={[styles.variantPillText, { color: '#cbd5e1' }]}>Standard Product</Text>
+                  </View>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setExpandedId(isExpanded ? null : item.id);
+                }}
+                style={styles.expandBtn}
+              >
+                <ChevronDown
+                  size={24}
+                  color="#fff"
+                  strokeWidth={3}
+                  style={{ transform: [{ rotate: isExpanded ? '180deg' : '0deg' }] }}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {isExpanded && (
+            <View style={styles.cardFooter}>
+              <TouchableOpacity
+                style={[styles.miniAction, { backgroundColor: '#f8fafc', flex: 1, borderWidth: 1.5, borderColor: '#f1f5f9' }]}
+                onPress={() => handleEdit(item)}
+              >
+                <Edit size={16} color="#64748b" />
+                <Text style={styles.miniActionText}>EDIT PRODUCT</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.miniAction, { backgroundColor: '#fef2f2', borderWidth: 1.5, borderColor: '#fee2e2' }]}
+                onPress={() => handleDelete(item.id)}
+              >
+                <Trash2 size={16} color="#ef4444" />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <SafeAreaView edges={['top']} style={[styles.safeArea, { backgroundColor: '#000' }]}>
+        <View style={styles.mainHeader}>
+          <View>
+            <Text style={[styles.mainTitle, { color: '#fff' }]}>Inventory</Text>
+            <Text style={[styles.subTitle, { color: 'rgba(255,255,255,0.5)' }]}>{products.length} Products Tracked</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.1)' }]} onPress={() => setImportModalVisible(true)}>
+              <Upload color="#fff" size={22} strokeWidth={2.5} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
+              <Plus color="#fff" size={24} strokeWidth={3} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.searchSection}>
+          <View style={[styles.searchBar, { backgroundColor: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+            <Search size={20} color="#94a3b8" strokeWidth={2.5} />
+            <TextInput
+              placeholder="Search products, SKU or category..."
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              style={[styles.searchInput, { color: '#fff' }]}
+              placeholderTextColor="rgba(255,255,255,0.3)"
+            />
+            {searchTerm !== '' && (
+              <TouchableOpacity onPress={() => setSearchTerm('')}>
+                <AlertCircle size={20} color="rgba(255,255,255,0.3)" style={{ transform: [{ rotate: '45deg' }] }} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={[styles.filterAction, { backgroundColor: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.1)' }, showFilters && styles.filterActionActive]}
+            onPress={() => setShowFilters(!showFilters)}
+          >
+            <Filter size={20} color={showFilters ? "#fff" : "#000"} strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
+
+        {showFilters && (
+          <View style={styles.filtersWrapper}>
+            <CategoryFilter
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onCategoryChange={setSelectedCategory}
+            />
+          </View>
+        )}
+      </SafeAreaView>
+
+      <FlatList
+        data={filteredProducts}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContainer}
+        showsVerticalScrollIndicator={false}
+        refreshing={loading}
+        onRefresh={fetchProducts}
+        ListHeaderComponent={() => (
+          <>
+            {lowStockProducts.length > 0 && !searchTerm && !selectedCategory && (
+              <View style={styles.alertSection}>
+                <View style={styles.alertHeader}>
+                  <AlertCircle size={16} color="#ef4444" />
+                  <Text style={styles.alertTitle}>CRITICAL STOCK ALERTS</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.alertScroll}>
+                  {lowStockProducts.map((p) => (
+                    <TouchableOpacity key={p.id} style={styles.alertCard} onPress={() => handleEdit({ ...p, id: p._realId || p.id })}>
+                      <View style={styles.alertIconInner}>
+                        <Box size={18} color="#ef4444" />
+                      </View>
+                      <View>
+                        <Text style={styles.alertProductName} numberOfLines={1}>{p.name}</Text>
+                        <Text style={styles.alertStockValue}>{p.alertLabel || `${p.stock} units left`}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </>
+        )}
+        renderItem={renderItem}
+        ListEmptyComponent={
+          loading ? (
+            <ActivityIndicator size="large" color="#000" style={{ marginTop: 60 }} />
+          ) : (
+            <View style={styles.emptyStateContainer}>
+              <Package size={64} color="#f1f5f9" strokeWidth={1} />
+              <Text style={styles.emptyTitle}>NO PRODUCTS FOUND</Text>
+              <Text style={styles.emptyDesc}>Start by adding a new product or importing your list.</Text>
+              <TouchableOpacity style={styles.emptyBtn} onPress={handleAddNew}>
+                <Text style={styles.emptyBtnText}>ADD FIRST PRODUCT</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        }
+      />
+
+      {selectionMode && selectedRows.size > 0 && (
+        <View style={styles.floatingActionMenu}>
+          <View style={styles.selectionInfo}>
+            <Text style={styles.selectionCount}>{selectedRows.size}</Text>
+            <Text style={styles.selectionLabel}>Selected</Text>
+          </View>
+          <View style={styles.floatingActions}>
+            <TouchableOpacity
+              style={styles.bulkActionBtn}
+              onPress={() => {
+                Alert.alert("Bulk Delete", `Delete ${selectedRows.size} items?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete', style: 'destructive', onPress: async () => {
+                      await bulkDeleteProducts(Array.from(selectedRows));
+                      setSelectionMode(false);
+                      setSelectedRows(new Set());
+                    }
+                  }
+                ]);
+              }}
+            >
+              <Trash2 size={20} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.cancelSelection}
+              onPress={() => {
+                setSelectionMode(false);
+                setSelectedRows(new Set());
+              }}
+            >
+              <Text style={styles.cancelText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      <ProductDrawer
+        visible={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        onSave={handleSaveProduct}
+        product={editingProduct}
+      />
+
+      <ImportProductModal
+        visible={importModalVisible}
+        onClose={() => setImportModalVisible(false)}
+        onImport={(data) => {
+          importProducts(data);
+          setImportModalVisible(false);
+        }}
+      />
+    </View>
+  );
+};
+
+export default ProductsListScreen;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#fff' },
+  safeArea: { backgroundColor: '#fff', borderBottomWidth: 1.5, borderColor: '#f8fafc' },
+  mainHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16
+  },
+  mainTitle: { fontSize: 32, fontWeight: '900', color: '#000', letterSpacing: -1 },
+  subTitle: { fontSize: 13, color: '#94a3b8', fontWeight: '700', marginTop: -2 },
+  headerActions: { flexDirection: 'row', gap: 12 },
+  iconBtn: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
+  addBtn: { width: 48, height: 48, borderRadius: 16, backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center', shadowColor: '#10b981', shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 },
+
+  searchSection: { flexDirection: 'row', gap: 12, paddingHorizontal: 24, paddingBottom: 20 },
+  searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', height: 54, borderRadius: 18, paddingHorizontal: 16, gap: 12, borderWidth: 1.5, borderColor: '#f1f5f9' },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '700', color: '#000' },
+  filterAction: { width: 54, height: 54, borderRadius: 18, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
+  filterActionActive: { backgroundColor: '#000', borderColor: '#000' },
+  filtersWrapper: { paddingBottom: 16 },
+
+  listContainer: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 },
+
+  // Pro Card Styles
+  proCard: { backgroundColor: '#fff', borderRadius: 28, marginBottom: 20, borderWidth: 1.5, borderColor: '#f1f5f9', shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 20, elevation: 2 },
+  proCardSelected: { borderColor: '#10b981', backgroundColor: '#f0fdf4' },
+  cardMainContent: { padding: 20 },
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
+  proIconBox: { width: 50, height: 50, borderRadius: 16, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#f1f5f9' },
+  proProductName: { fontSize: 18, fontWeight: '900', color: '#000', letterSpacing: -0.5 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  skuBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f8fafc', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  skuText: { fontSize: 10, fontWeight: '900', color: '#94a3b8' },
+  tagRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  proCategoryBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  proCategoryText: { fontSize: 9, fontWeight: '900', color: '#64748b', textTransform: 'uppercase' },
+  brandText: { fontSize: 11, color: '#94a3b8', fontWeight: '700' },
+
+  metricsGrid: { flexDirection: 'row', backgroundColor: '#f8fafc', borderRadius: 20, marginTop: 18, padding: 14, borderWidth: 1, borderColor: '#f1f5f9' },
+  metricItem: { flex: 1, paddingHorizontal: 4 },
+  metricDivider: { borderLeftWidth: 1.5, borderLeftColor: '#f1f5f9', paddingLeft: 16 },
+  metricLabel: { fontSize: 9, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5, marginBottom: 4 },
+  metricValue: { fontSize: 16, fontWeight: '900', color: '#000' },
+  stockRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+
+  proVariantsSection: { marginTop: 16, paddingHorizontal: 4 },
+  variantsHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  variantsTitle: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 0.5 },
+  actionMicroLabel: { fontSize: 8, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+  expandBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  variantScroll: { flexDirection: 'row' },
+  variantGridPill: { flexGrow: 1, paddingHorizontal: 12, height: 40, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
+  variantPillText: { fontSize: 11, fontWeight: '900', color: '#475569', letterSpacing: 0.3 },
+
+  cardFooter: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16, gap: 10 },
+  miniAction: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, borderWidth: 1.5, borderColor: 'transparent' },
+  miniActionText: { fontSize: 11, fontWeight: '900', color: '#64748b', letterSpacing: 0.5 },
+
+  // Alerts Section
+  alertSection: { marginBottom: 30 },
+  alertHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  alertTitle: { fontSize: 11, fontWeight: '900', color: '#ef4444', letterSpacing: 1 },
+  alertScroll: { paddingVertical: 4 },
+  alertCard: { backgroundColor: '#fff', borderRadius: 20, padding: 14, marginRight: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: '#fef2f2', minWidth: 200, shadowColor: '#ef4444', shadowOpacity: 0.05, shadowRadius: 10, elevation: 1 },
+  alertIconInner: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center' },
+  alertProductName: { fontSize: 14, fontWeight: '900', color: '#000' },
+  alertStockValue: { fontSize: 12, color: '#ef4444', fontWeight: '800' },
+
+  // Selection & Checkbox
+  checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: '#e2e8f0', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  checkboxActive: { backgroundColor: '#10b981', borderColor: '#10b981' },
+
+  floatingActionMenu: { position: 'absolute', bottom: 30, left: 24, right: 24, height: 74, backgroundColor: '#000', borderRadius: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, elevation: 10 },
+  selectionInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  selectionCount: { backgroundColor: '#10b981', color: '#fff', width: 28, height: 28, borderRadius: 14, textAlign: 'center', lineHeight: 28, fontSize: 14, fontWeight: '900' },
+  selectionLabel: { color: '#fff', fontWeight: '900', fontSize: 14 },
+  floatingActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bulkActionBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#ef4444', alignItems: 'center', justifyContent: 'center' },
+  cancelSelection: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 14 },
+  cancelText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+
+  // Empty State
+  emptyStateContainer: { alignItems: 'center', marginTop: 100, paddingHorizontal: 40 },
+  emptyTitle: { fontSize: 18, fontWeight: '900', color: '#000', marginTop: 20 },
+  emptyDesc: { fontSize: 14, color: '#94a3b8', textAlign: 'center', marginTop: 8, lineHeight: 22, fontWeight: '600' },
+  emptyBtn: { marginTop: 24, backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 14, borderRadius: 18 },
+  emptyBtnText: { color: '#fff', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 },
+
+  greenText: { color: '#10b981' },
+  orangeText: { color: '#f59e0b' },
+  redText: { color: '#ef4444' }
+});

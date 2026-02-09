@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "Zilling-mobile-2",
+			"path": "../../../.."
+		},
+		{
+			"name": "backend",
+			"path": "../../../../../Zilling-mobile/backend"
+		}
+	],
+	"settings": {}
+}
