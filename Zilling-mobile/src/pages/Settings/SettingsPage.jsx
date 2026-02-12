@@ -9,6 +9,7 @@ import {
   Printer,
   Save,
   RotateCcw,
+  Cloud,
   Plus,
   Trash2,
   CheckCircle2,
@@ -24,11 +25,20 @@ import {
   LogOut,
   HelpCircle,
   MessageCircle,
-  Send
+  Send,
+  Folder,
+  Shield,
+  Headset,
+  ExternalLink,
+  Globe,
+  MessageSquare
 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
+import { useCustomers } from '../../context/CustomerContext';
+import { useProducts } from '../../context/ProductContext';
+import { useTransactions } from '../../context/TransactionContext';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Card } from '../../components/ui/Card';
@@ -36,18 +46,25 @@ import services from '../../services/api';
 
 const SettingsPage = ({ navigation }) => {
   const { logout } = useAuth();
-  const { settings, updateSettings, saveFullSettings, syncAllData, forceResync, lastEventSyncTime, loading } = useSettings();
+  const { settings, updateSettings, saveFullSettings, syncAllData, syncToCloud, forceResync, lastEventSyncTime, syncStatus, loading } = useSettings();
+  const { fetchCustomers } = useCustomers();
+  const { fetchProducts } = useProducts();
+  const { fetchTransactions } = useTransactions();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('store');
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   const [taxGroups, setTaxGroups] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [localSettings, setLocalSettings] = useState(null);
 
   useEffect(() => {
-    if (settings?.tax?.taxGroups) {
-      setTaxGroups(settings.tax.taxGroups);
+    if (settings && !isEditing) {
+      setLocalSettings(JSON.parse(JSON.stringify(settings)));
+      if (settings.tax?.taxGroups) {
+        setTaxGroups(settings.tax.taxGroups);
+      }
     }
-  }, [settings]);
+  }, [settings, isEditing]);
 
   useFocusEffect(
     useCallback(() => {
@@ -78,10 +95,12 @@ const SettingsPage = ({ navigation }) => {
 
   // ... (keeping existing save/cancel/change handlers) ...
   const handleSave = async () => {
+    if (!localSettings) return;
+
     const payload = {
-      ...settings,
+      ...localSettings,
       tax: {
-        ...settings.tax,
+        ...localSettings.tax,
         taxGroups: taxGroups
       },
       lastUpdatedAt: new Date()
@@ -110,6 +129,7 @@ const SettingsPage = ({ navigation }) => {
               setIsEditing(false);
               setUnsavedChanges(false);
               // Reset local state to original settings
+              setLocalSettings(JSON.parse(JSON.stringify(settings)));
               setTaxGroups(settings?.tax?.taxGroups || []);
             }
           },
@@ -121,25 +141,32 @@ const SettingsPage = ({ navigation }) => {
   };
 
   const handleChange = (section, field, value, subField = null) => {
-    if (!isEditing) {
-      showToast("Please tap the Edit icon to make changes", "info");
-      return;
-    }
+    if (!isEditing) setIsEditing(true);
 
     setUnsavedChanges(true);
-    if (subField) {
-      updateSettings(section, {
-        [field]: {
-          ...settings[section][field],
-          [subField]: value
-        }
-      });
-    } else {
-      updateSettings(section, { [field]: value });
-    }
+    setLocalSettings(prev => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      if (subField) {
+        next[section] = {
+          ...next[section],
+          [field]: {
+            ...next[section][field],
+            [subField]: value
+          }
+        };
+      } else {
+        next[section] = {
+          ...next[section],
+          [field]: value
+        };
+      }
+      return next;
+    });
   };
 
   const addTaxGroup = () => {
+    if (!isEditing) setIsEditing(true);
     const newGroup = {
       id: Date.now().toString(),
       name: 'New Tax Group',
@@ -154,6 +181,7 @@ const SettingsPage = ({ navigation }) => {
   };
 
   const updateTaxGroup = (id, field, value) => {
+    if (!isEditing) setIsEditing(true);
     const updated = taxGroups.map(g => {
       if (g.id === id) {
         const updatedGroup = { ...g, [field]: value };
@@ -172,6 +200,7 @@ const SettingsPage = ({ navigation }) => {
   };
 
   const removeTaxGroup = (id) => {
+    if (!isEditing) setIsEditing(true);
     setTaxGroups(taxGroups.filter(g => g.id !== id));
     setUnsavedChanges(true);
   };
@@ -186,10 +215,11 @@ const SettingsPage = ({ navigation }) => {
     { id: 'logout', label: 'Logout', icon: LogOut },
   ];
 
-  if (loading || !settings) {
+  if (loading || !settings || !localSettings) {
     return (
       <View style={styles.center}>
-        <Text>Loading Settings...</Text>
+        <ActivityIndicator size="large" color="#000" />
+        <Text style={{ marginTop: 12, fontWeight: '600' }}>Loading Settings...</Text>
       </View>
     );
   }
@@ -222,7 +252,7 @@ const SettingsPage = ({ navigation }) => {
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>Store Display Name</Text>
                       <Input
-                        value={settings.store.name}
+                        value={localSettings.store.name}
                         onChangeText={(v) => handleChange('store', 'name', v)}
                         placeholder="e.g. Kwiq Billing Store"
                       />
@@ -230,7 +260,7 @@ const SettingsPage = ({ navigation }) => {
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>Legal Business Name</Text>
                       <Input
-                        value={settings.store.legalName}
+                        value={localSettings.store.legalName}
                         onChangeText={(v) => handleChange('store', 'legalName', v)}
                         placeholder="As per GST Certificate"
                       />
@@ -239,7 +269,7 @@ const SettingsPage = ({ navigation }) => {
                       <View style={[styles.inputGroup, { flex: 1 }]}>
                         <Text style={styles.label}>Contact Number</Text>
                         <Input
-                          value={settings.store.contact}
+                          value={localSettings.store.contact}
                           onChangeText={(v) => handleChange('store', 'contact', v)}
                           keyboardType="phone-pad"
                         />
@@ -248,19 +278,19 @@ const SettingsPage = ({ navigation }) => {
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>Email Address</Text>
                       <Input
-                        value={settings.store.email}
+                        value={localSettings.store.email}
                         onChangeText={(v) => handleChange('store', 'email', v)}
                         keyboardType="email-address"
                       />
                     </View>
                   </>
                 ) : (
-                  <View>
+                  <TouchableOpacity onPress={() => setIsEditing(true)}>
                     <DetailRow label="Store Display Name" value={settings.store.name} icon={Store} />
                     <DetailRow label="Legal Business Name" value={settings.store.legalName} icon={Building} />
                     <DetailRow label="Contact Number" value={settings.store.contact} icon={Phone} />
                     <DetailRow label="Email Address" value={settings.store.email} icon={Mail} />
-                  </View>
+                  </TouchableOpacity>
                 )}
               </View>
             </Card>
@@ -278,7 +308,7 @@ const SettingsPage = ({ navigation }) => {
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>Street Address</Text>
                       <Input
-                        value={settings.store.address?.street}
+                        value={localSettings.store.address?.street}
                         onChangeText={(v) => handleChange('store', 'address', v, 'street')}
                       />
                     </View>
@@ -286,14 +316,14 @@ const SettingsPage = ({ navigation }) => {
                       <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
                         <Text style={styles.label}>City</Text>
                         <Input
-                          value={settings.store.address?.city}
+                          value={localSettings.store.address?.city}
                           onChangeText={(v) => handleChange('store', 'address', v, 'city')}
                         />
                       </View>
                       <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
                         <Text style={styles.label}>Pincode</Text>
                         <Input
-                          value={settings.store.address?.pincode}
+                          value={localSettings.store.address?.pincode}
                           onChangeText={(v) => handleChange('store', 'address', v, 'pincode')}
                           keyboardType="numeric"
                         />
@@ -301,11 +331,11 @@ const SettingsPage = ({ navigation }) => {
                     </View>
                   </>
                 ) : (
-                  <View>
+                  <TouchableOpacity onPress={() => setIsEditing(true)}>
                     <DetailRow label="Street Address" value={settings.store.address?.street} icon={MapPin} />
                     <DetailRow label="City" value={settings.store.address?.city} />
                     <DetailRow label="Pincode" value={settings.store.address?.pincode} />
-                  </View>
+                  </TouchableOpacity>
                 )}
               </View>
             </Card>
@@ -324,13 +354,13 @@ const SettingsPage = ({ navigation }) => {
                     <Text style={styles.helperText}>Enable tax calculations & compliance</Text>
                   </View>
                   <Switch
-                    value={settings.tax.gstEnabled}
+                    value={localSettings.tax.gstEnabled}
                     onValueChange={(v) => handleChange('tax', 'gstEnabled', v)}
                     trackColor={{ false: '#f1f5f9', true: '#000000' }}
                   />
                 </View>
 
-                {settings.tax.gstEnabled && (
+                {localSettings.tax.gstEnabled && (
                   <>
                     <View style={styles.divider} />
 
@@ -339,15 +369,17 @@ const SettingsPage = ({ navigation }) => {
                       <Text style={styles.label}>GSTIN Number</Text>
                       {isEditing ? (
                         <Input
-                          value={settings.store.gstin}
+                          value={localSettings.store.gstin}
                           onChangeText={(v) => handleChange('store', 'gstin', v.toUpperCase())}
                           autoCapitalize="characters"
                           placeholder="22AAAAA0000A1Z5"
                         />
                       ) : (
-                        <View style={styles.readOnlyBadge}>
-                          <Text style={styles.readOnlyBadgeText}>{settings.store.gstin || 'Not set'}</Text>
-                        </View>
+                        <TouchableOpacity onPress={() => setIsEditing(true)}>
+                          <View style={styles.readOnlyBadge}>
+                            <Text style={styles.readOnlyBadgeText}>{settings.store.gstin || 'Not set'}</Text>
+                          </View>
+                        </TouchableOpacity>
                       )}
                     </View>
 
@@ -358,27 +390,25 @@ const SettingsPage = ({ navigation }) => {
                         <TouchableOpacity
                           style={[
                             styles.segmentBtn,
-                            (settings.tax.defaultTaxType || 'intra') === 'intra' && styles.segmentBtnActive
+                            (localSettings.tax.defaultTaxType || 'intra') === 'intra' && styles.segmentBtnActive
                           ]}
                           onPress={() => handleChange('tax', 'defaultTaxType', 'intra')}
-                          disabled={!isEditing}
                         >
                           <Text style={[
                             styles.segmentText,
-                            (settings.tax.defaultTaxType || 'intra') === 'intra' && styles.segmentTextActive
+                            (localSettings.tax.defaultTaxType || 'intra') === 'intra' && styles.segmentTextActive
                           ]}>Intrastate (Local)</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[
                             styles.segmentBtn,
-                            (settings.tax.defaultTaxType || 'intra') === 'inter' && styles.segmentBtnActive
+                            (localSettings.tax.defaultTaxType || 'intra') === 'inter' && styles.segmentBtnActive
                           ]}
                           onPress={() => handleChange('tax', 'defaultTaxType', 'inter')}
-                          disabled={!isEditing}
                         >
                           <Text style={[
                             styles.segmentText,
-                            (settings.tax.defaultTaxType || 'intra') === 'inter' && styles.segmentTextActive
+                            (localSettings.tax.defaultTaxType || 'intra') === 'inter' && styles.segmentTextActive
                           ]}>Interstate (Outside)</Text>
                         </TouchableOpacity>
                       </View>
@@ -501,7 +531,7 @@ const SettingsPage = ({ navigation }) => {
                   >
                     <InvoiceTemplatePreview
                       variant={tmpl}
-                      isActive={settings.invoice.template === tmpl}
+                      isActive={localSettings.invoice.template === tmpl}
                     />
                   </TouchableOpacity>
                 ))}
@@ -526,7 +556,7 @@ const SettingsPage = ({ navigation }) => {
                   <View key={opt.key} style={styles.toggleItem}>
                     <Text style={styles.toggleLabel}>{opt.label}</Text>
                     <Switch
-                      value={settings.invoice[opt.key]}
+                      value={localSettings.invoice[opt.key]}
                       onValueChange={(v) => handleChange('invoice', opt.key, v)}
                       trackColor={{ false: '#f1f5f9', true: '#000000' }}
                     />
@@ -557,11 +587,10 @@ const SettingsPage = ({ navigation }) => {
                         onPress={() => handleChange('invoice', 'paperSize', size)}
                         style={[
                           styles.pickerItem,
-                          settings.invoice.paperSize === size && styles.pickerActive,
-                          !isEditing && settings.invoice.paperSize !== size && { opacity: 0.5 }
+                          localSettings.invoice.paperSize === size && styles.pickerActive
                         ]}
                       >
-                        <Text style={[styles.pickerText, settings.invoice.paperSize === size && styles.pickerTextActive]}>
+                        <Text style={[styles.pickerText, localSettings.invoice.paperSize === size && styles.pickerTextActive]}>
                           {size}
                         </Text>
                       </TouchableOpacity>
@@ -572,13 +601,15 @@ const SettingsPage = ({ navigation }) => {
                   <Text style={styles.label}>Currency Symbol</Text>
                   {isEditing ? (
                     <Input
-                      value={settings.defaults.currency}
+                      value={localSettings.defaults.currency}
                       onChangeText={(v) => handleChange('defaults', 'currency', v)}
                     />
                   ) : (
-                    <View style={styles.readOnlyBadge}>
-                      <Text style={styles.readOnlyBadgeText}>{settings.defaults.currency || '₹'}</Text>
-                    </View>
+                    <TouchableOpacity onPress={() => setIsEditing(true)}>
+                      <View style={styles.readOnlyBadge}>
+                        <Text style={styles.readOnlyBadgeText}>{settings.defaults.currency || '₹'}</Text>
+                      </View>
+                    </TouchableOpacity>
                   )}
                 </View>
               </View>
@@ -588,184 +619,163 @@ const SettingsPage = ({ navigation }) => {
       case 'backup':
         return (
           <View style={styles.tabContent}>
-            {/* Sync Section */}
+            {/* Cloud Sync Section */}
             <Card style={styles.card}>
-              <View style={styles.cardPadding}>
-                <View style={[styles.toggleRow, { marginBottom: 16 }]}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.cardTitle}>Manual Sync (Event Sourcing)</Text>
-                    <Text style={styles.helperText}>Pull latest events and push pending changes.</Text>
-                  </View>
+              <View style={styles.cardHeader}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#3b82f6' }]}>
+                  <Cloud size={20} color="#fff" />
                 </View>
+                <Text style={styles.cardTitle}>Cloud Backup & Sync</Text>
+              </View>
+              <View style={styles.cardPadding}>
+                <Text style={styles.sectionDesc}>
+                  Secure your data by syncing with Google Drive. Access your information across multiple devices and never lose a single invoice.
+                </Text>
 
                 <TouchableOpacity
                   onPress={async () => {
-                    showToast("Syncing...", "info");
-                    const success = await syncAllData();
+                    showToast("Backing up to Cloud...", "info");
+                    const success = await syncToCloud();
                     if (success) {
-                      showToast("Sync Completed Successfully", "success");
+                      showToast("Backup Successful!", "success");
                     } else {
-                      showToast("Sync Failed", "error");
+                      showToast("Backup Failed. Check your connection.", "error");
                     }
                   }}
-                  style={{
-                    backgroundColor: '#000000',
-                    paddingVertical: 14,
-                    paddingHorizontal: 20,
-                    borderRadius: 14,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    marginBottom: 10
-                  }}
+                  style={styles.actionButton}
                 >
-                  <RotateCcw size={18} color="#fff" />
-                  <Text style={{ color: 'white', fontWeight: '700', fontSize: 14 }}>Sync Now</Text>
+                  <Cloud size={18} color="#fff" />
+                  <Text style={styles.actionButtonText}>Instant Cloud Backup</Text>
                 </TouchableOpacity>
 
-                <View style={styles.infoBox}>
-                  <CheckCircle2 size={16} color="#059669" />
-                  <Text style={styles.infoText}>
-                    Last Synced: {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleString() : 'Never'}
-                  </Text>
+                {/* Real-time Status Indicator */}
+                {(syncStatus && syncStatus !== 'Ready') ? (
+                  <View style={{
+                    backgroundColor: '#fffbeb',
+                    borderColor: '#fef3c7',
+                    borderWidth: 1,
+                    borderRadius: 10,
+                    padding: 8,
+                    marginTop: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <ActivityIndicator size="small" color="#d97706" />
+                    <Text style={{ fontSize: 12, color: '#d97706', fontWeight: '800', flex: 1 }}>
+                      Live Status: {syncStatus}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={[styles.syncActionsRow, { marginTop: 12 }]}>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      showToast("Syncing...", "info");
+                      const success = await syncAllData();
+                      if (success) {
+                        showToast("Sync Completed Successfully", "success");
+                        // Refresh all data contexts to show new items/loyalty
+                        fetchCustomers();
+                        fetchProducts();
+                        fetchTransactions();
+                      } else {
+                        showToast("Sync Failed", "error");
+                      }
+                    }}
+                    style={[styles.miniSyncBtn, { flex: 1.5 }]}
+                  >
+                    <RotateCcw size={16} color="#fff" />
+                    <Text style={styles.miniSyncBtnText}>Sync Now</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.syncStatusBadge}>
+                    <CheckCircle2 size={12} color="#059669" />
+                    <Text style={styles.syncStatusText}>
+                      {lastEventSyncTime ? new Date(lastEventSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                    </Text>
+                  </View>
                 </View>
 
-                {/* Force Re-sync Button */}
-                <TouchableOpacity
-                  onPress={() => {
-                    Alert.alert(
-                      "Force Full Re-sync?",
-                      "This will clear the local sync history and attempt to re-download all events from Google Drive. Use this if data is missing.",
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Yes, Re-sync",
-                          onPress: async () => {
-                            showToast("Resetting Sync State...", "info");
-                            const success = await forceResync();
-                            if (success) {
-                              showToast("Re-sync Started Successfully", "success");
-                            } else {
-                              showToast("Re-sync Failed", "error");
+                <View style={styles.divider} />
+
+                <View style={styles.dangerZone}>
+                  <Text style={styles.dangerTitle}>Advanced Recovery</Text>
+                  <Text style={[styles.helperText, { marginBottom: 12, fontSize: 11 }]}>
+                    Force Re-sync clears your local meta-data and attempts to rebuild your database by re-importing every event from Google Drive. Use this only if you notice missing data or sync errors.
+                  </Text>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      Alert.alert(
+                        "Force Full Re-sync?",
+                        "This will clear local sync history and re-download all events from Drive. Your local data will be updated to match the Cloud exactly.",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Yes, Re-sync",
+                            onPress: async () => {
+                              showToast("Resetting Sync State...", "info");
+                              const success = await forceResync();
+                              if (success) {
+                                showToast("Re-sync Completed", "success");
+                                // After full re-sync, must refresh all lists
+                                fetchCustomers();
+                                fetchProducts();
+                                fetchTransactions();
+                              } else {
+                                showToast("Re-sync Failed", "error");
+                              }
                             }
                           }
-                        }
-                      ]
-                    );
-                  }}
-                  style={{
-                    backgroundColor: '#ef4444',
-                    paddingVertical: 14,
-                    paddingHorizontal: 20,
-                    borderRadius: 14,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    marginBottom: 10
-                  }}
-                >
-                  <RotateCcw size={18} color="#fff" />
-                  <Text style={{ color: 'white', fontWeight: '700', fontSize: 14 }}>Force Re-sync (Fix Missing Data)</Text>
-                </TouchableOpacity>
+                        ]
+                      );
+                    }}
+                    style={styles.dangerButton}
+                  >
+                    <RotateCcw size={16} color="#ef4444" />
+                    <Text style={styles.dangerButtonText}>Force Re-sync (Fix Missing Data)</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </Card>
 
+            {/* Local backup section */}
             <Card style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.headerIconContainer, { backgroundColor: '#10b981' }]}>
+                  <Folder size={20} color="#fff" />
+                </View>
+                <Text style={styles.cardTitle}>Local Device Backup</Text>
+              </View>
               <View style={styles.cardPadding}>
                 <View style={styles.toggleRow}>
                   <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.cardTitle}>Real-time Auto Save</Text>
-                    <Text style={styles.helperText}>Automatically sync all your data to your phone's folder whenever you add or edit something.</Text>
+                    <Text style={[styles.cardTitle, { fontSize: 15 }]}>Real-time Auto Save</Text>
+                    <Text style={styles.helperText}>Automatically export JSON backups to your phone's storage every time you add or edit something.</Text>
                   </View>
                   <Switch
-                    value={settings.defaults?.autoSave}
+                    value={localSettings.defaults?.autoSave}
                     onValueChange={(v) => handleChange('defaults', 'autoSave', v)}
                     trackColor={{ false: '#f1f5f9', true: '#10b981' }}
                   />
                 </View>
 
-                <View style={styles.infoBox}>
-                  <Save size={16} color="#10b981" />
-                  <Text style={styles.infoText}>
-                    When enabled, the app will update the .json files for Customers, Products, Invoices, and Expenses automatically.
-                  </Text>
-                </View>
-              </View>
-            </Card>
-
-            {/* Restore Section - Keeping for Legacy Backup Protocol */}
-
-          </View >
-        );
-      case 'contact':
-        return (
-          <View style={styles.tabContent}>
-            <Card style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={styles.headerIconContainer}>
-                  <Headset size={20} color="#2563eb" />
-                </View>
-                <Text style={styles.cardTitle}>Support & Feedback</Text>
-              </View>
-              <View style={styles.cardPadding}>
-                <Text style={styles.contactIntro}>
-                  Have questions or need help? Reach out to our team. We're here to support your business growth.
-                </Text>
-
-                <TouchableOpacity
-                  style={styles.contactItem}
-                  onPress={() => Linking.openURL('mailto:support@zilling.in')}
-                >
-                  <View style={[styles.contactIconBox, { backgroundColor: '#eff6ff' }]}>
-                    <Mail size={20} color="#2563eb" />
+                {localSettings.defaults?.autoSave ? (
+                  <View style={[styles.infoBox, { marginTop: 12, backgroundColor: '#f0fdf4', borderColor: '#d1fae5' }]}>
+                    <Shield size={16} color="#10b981" />
+                    <Text style={[styles.infoText, { color: '#065f46' }]}>
+                      Active: Local files for Customers, Products, and Invoices are being updated instantly on every change.
+                    </Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.contactLabel}>Email Us</Text>
-                    <Text style={styles.contactValue}>support@zilling.in</Text>
+                ) : (
+                  <View style={[styles.infoBox, { marginTop: 12, backgroundColor: '#fff7ed', borderColor: '#ffedd5' }]}>
+                    <AlertCircle size={16} color="#f97316" />
+                    <Text style={[styles.infoText, { color: '#9a3412' }]}>
+                      Disabled: Enable this to keep a fresh copy of your data in your phone's downloads folder.
+                    </Text>
                   </View>
-                  <ExternalLink size={16} color="#94a3b8" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.contactItem}
-                  onPress={() => Linking.openURL('https://zilling.in')}
-                >
-                  <View style={[styles.contactIconBox, { backgroundColor: '#f0fdf4' }]}>
-                    <Globe size={20} color="#059669" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.contactLabel}>Visit Website</Text>
-                    <Text style={styles.contactValue}>www.zilling.in</Text>
-                  </View>
-                  <ExternalLink size={16} color="#94a3b8" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.contactItem}
-                  onPress={() => Linking.openURL('https://wa.me/91XXXXXXXXXX')}
-                >
-                  <View style={[styles.contactIconBox, { backgroundColor: '#f0fdfa' }]}>
-                    <MessageSquare size={20} color="#0d9488" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.contactLabel}>WhatsApp Support</Text>
-                    <Text style={styles.contactValue}>Quick Chat</Text>
-                  </View>
-                  <ExternalLink size={16} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-            </Card>
-
-            <Card style={styles.card}>
-              <View style={styles.cardPadding}>
-                <View style={styles.infoBox}>
-                  <AlertCircle size={16} color="#0369a1" />
-                  <Text style={[styles.infoText, { color: '#0369a1' }]}>
-                    Response time is usually within 24 hours during business days.
-                  </Text>
-                </View>
+                )}
               </View>
             </Card>
           </View>
@@ -773,9 +783,14 @@ const SettingsPage = ({ navigation }) => {
       case 'contact':
         return (
           <View style={styles.tabContent}>
-            <View style={{ padding: 10, marginBottom: 10 }}>
-              <Text style={{ fontSize: 24, fontWeight: '900', color: '#1e293b' }}>Help & Support</Text>
-              <Text style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>Get in touch with Kwiq Billing administrators for any assistance.</Text>
+            <View style={{ padding: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ backgroundColor: '#eff6ff', padding: 10, borderRadius: 12 }}>
+                <Headset size={28} color="#2563eb" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 24, fontWeight: '900', color: '#1e293b' }}>Help & Support</Text>
+                <Text style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Get in touch with Kwiq Billing team.</Text>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -896,20 +911,23 @@ const SettingsPage = ({ navigation }) => {
           </View>
         </View>
         <View style={styles.headerActions}>
-          {isEditing ? (
-            <>
-              <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
-                <X size={20} color="#64748b" />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleSave} style={[styles.saveBtn, !unsavedChanges && styles.saveBtnDisabled, { backgroundColor: '#10b981' }]}>
-                <Save size={20} color="#fff" />
-              </TouchableOpacity>
-            </>
-          ) : (
-            <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.editBtn}>
-              <Edit2 size={20} color="#fff" />
+          {isEditing && (
+            <TouchableOpacity onPress={handleCancel} style={styles.cancelBtn}>
+              <X size={20} color="#64748b" />
             </TouchableOpacity>
           )}
+
+          <TouchableOpacity
+            onPress={unsavedChanges ? handleSave : null}
+            activeOpacity={unsavedChanges ? 0.7 : 1}
+            style={[
+              styles.saveBtn,
+              { backgroundColor: unsavedChanges ? '#10b981' : '#f1f5f9' },
+              !unsavedChanges && { opacity: 0.5, borderWidth: 1, borderColor: '#e2e8f0' }
+            ]}
+          >
+            <Save size={20} color={unsavedChanges ? "#fff" : "#94a3b8"} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1281,6 +1299,92 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#000'
+  },
+  sectionDesc: {
+    fontSize: 13,
+    color: '#64748b',
+    marginBottom: 16,
+    lineHeight: 18
+  },
+  actionButton: {
+    backgroundColor: '#000',
+    paddingVertical: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14
+  },
+  syncActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  miniSyncBtn: {
+    backgroundColor: '#000',
+    paddingVertical: 10,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
+  },
+  miniSyncBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13
+  },
+  syncStatusBadge: {
+    flex: 1,
+    backgroundColor: '#f0fdf4',
+    paddingVertical: 10,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#d1fae5'
+  },
+  syncStatusText: {
+    color: '#059669',
+    fontSize: 12,
+    fontWeight: '800'
+  },
+  divider: {
+    height: 1.5,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 20
+  },
+  dangerZone: {
+    backgroundColor: '#fff5f5',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#fee2e2'
+  },
+  dangerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#b91c1c',
+    marginBottom: 4
+  },
+  dangerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10
+  },
+  dangerButtonText: {
+    color: '#ef4444',
+    fontWeight: '700',
+    fontSize: 13
   }
 });
 

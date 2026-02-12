@@ -7,7 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Receipt, ChevronRight, AlertTriangle, Clock, TrendingUp, IndianRupee, Menu,
-  Package, ArrowUpRight, Users, Settings, FileText, BarChart3, Scan, Check, CheckCircle2, ChevronDown, Trophy
+  Package, ArrowUpRight, Users, Settings, FileText, BarChart3, Scan, Check, CheckCircle2, ChevronDown, Trophy, Percent
 } from 'lucide-react-native';
 
 import SideMenu from '../components/SideMenu';
@@ -283,7 +283,7 @@ export default function Dashboard() {
           <View style={styles.actionGrid}>
             <IconButton icon={FileText} label="Create Invoice" color="#22c55e" onPress={() => navigation.navigate('Billing')} />
             <IconButton icon={BarChart3} label="Reports" color="#22c55e" onPress={() => navigation.navigate('Reports')} />
-            <IconButton icon={Users} label="Customers" color="#22c55e" onPress={() => navigation.navigate('Customers')} />
+            <IconButton icon={Percent} label="GST" color="#22c55e" onPress={() => navigation.navigate('GST')} />
             <IconButton icon={Package} label="Products" color="#22c55e" onPress={() => navigation.navigate('Products')} />
             <IconButton icon={Receipt} label="Expenses" color="#ef4444" onPress={() => setIsExpenseModalOpen(true)} />
             <IconButton icon={Settings} label="Settings" color="#ef4444" onPress={() => navigation.navigate('Settings')} />

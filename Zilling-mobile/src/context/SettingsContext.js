@@ -79,24 +79,37 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
     });
 
     const [loading, setLoading] = useState(true);
+    const [syncStatus, setSyncStatus] = useState('');
     const [lastEventSyncTime, setLastEventSyncTime] = useState(null);
     const [isSettingsDirty, setIsSettingsDirty] = useState(false); // New: Tracks if MongoDB update is pending
 
     const syncAllData = async (isManual = true) => {
         if (isManual) setLoading(true);
+        setSyncStatus('Starting sync...');
+
         try {
             const { SyncService } = require('../services/OneWaySyncService');
             // 1. Retry pending uploads
+            setSyncStatus('Pushing local changes...');
             await SyncService.retryQueue();
+
             // 2. Fetch and apply new events (Drive Sync)
-            await SyncService.syncDown();
+            await SyncService.syncDown((msg) => setSyncStatus(msg));
 
             // 3. Refresh Settings from MongoDB
+            setSyncStatus('Updating store profile...');
             try {
                 const settingsRes = await services.settings.getSettings();
                 if (settingsRes.data) {
                     setSettings(prev => {
-                        const merged = { ...prev, ...settingsRes.data };
+                        const merged = {
+                            ...prev,
+                            ...settingsRes.data,
+                            store: { ...prev.store, ...(settingsRes.data.store || {}) },
+                            tax: { ...prev.tax, ...(settingsRes.data.tax || {}) },
+                            invoice: { ...prev.invoice, ...(settingsRes.data.invoice || {}) },
+                            defaults: { ...prev.defaults, ...(settingsRes.data.defaults || {}) }
+                        };
                         AsyncStorage.setItem('app_settings', JSON.stringify(merged));
                         return merged;
                     });
@@ -108,6 +121,7 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
             // 4. Retry Onboarding Sync if dirty
             const dirtyFlag = await AsyncStorage.getItem('settings_dirty');
             if (dirtyFlag === 'true') {
+                setSyncStatus('Finalizing cloud setup...');
                 console.log('[Sync] Retrying pending onboarding upload to MongoDB...');
                 const saved = await AsyncStorage.getItem('app_settings');
                 if (saved) {
@@ -129,7 +143,7 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
                 }
             }
 
-            // Refresh time
+            setSyncStatus('Ready');
             const time = await AsyncStorage.getItem('last_synced_timestamp');
             if (time) setLastEventSyncTime(time);
 
@@ -188,7 +202,14 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
                     setSettings(prev => {
                         // Merge remote settings with local defaults/overrides
                         // We prioritize remote data for specific sections like 'store'
-                        const merged = { ...prev, ...response.data };
+                        const merged = {
+                            ...prev,
+                            ...response.data,
+                            store: { ...prev.store, ...(response.data.store || {}) },
+                            tax: { ...prev.tax, ...(response.data.tax || {}) },
+                            invoice: { ...prev.invoice, ...(response.data.invoice || {}) },
+                            defaults: { ...prev.defaults, ...(response.data.defaults || {}) }
+                        };
                         AsyncStorage.setItem('app_settings', JSON.stringify(merged));
                         return merged;
                     });
@@ -230,6 +251,14 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
                 AsyncStorage.setItem('settings_dirty', 'true');
                 setIsSettingsDirty(true);
             });
+
+            // Background: Google Drive Sync
+            if (user && user.id) {
+                const { syncSettingsToDrive } = require('../services/googleDriveservices');
+                syncSettingsToDrive(user, newSettings)
+                    .then(success => console.log('Background: Drive Sync (Settings Update)', success ? 'Success' : 'Failed'))
+                    .catch(err => console.error('Background: Drive Sync Error:', err));
+            }
 
             return newSettings;
         });
@@ -279,6 +308,7 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
 
     const forceResync = async () => {
         setLoading(true);
+        setSyncStatus('Resetting sync state...');
         try {
             const { SyncService } = require('../services/OneWaySyncService');
             console.log('[SettingsContext] Forcing Re-sync...');
@@ -287,6 +317,7 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
             return true;
         } catch (error) {
             console.error('Force Resync Error:', error);
+            setSyncStatus('Error: ' + error.message);
             return false;
         } finally {
             setLoading(false);
@@ -306,6 +337,32 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
         }
     };
 
+    const syncToCloud = async () => {
+        if (!user || !user.id) {
+            Alert.alert("Cloud Backup", "Please log in with Google to enable Cloud Backup.");
+            return false;
+        }
+        setLoading(true);
+        try {
+            const { fetchAllTableData } = require('../services/database');
+            const { syncUserDataToDrive } = require('../services/googleDriveservices');
+
+            const allData = await fetchAllTableData();
+            // syncUserDataToDrive expects settings to be part of allData or handled separately
+            // In our fetchAllTableData, it usually returns { products, customers, etc. }
+            // Let's ensure settings is included
+            allData.settings = [settings];
+
+            const success = await syncUserDataToDrive(user, allData);
+            return success;
+        } catch (error) {
+            console.error('Cloud Backup Error:', error);
+            return false;
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <SettingsContext.Provider value={{
             settings,
@@ -313,8 +370,10 @@ export const SettingsProvider = ({ children, user }) => { // Accept user prop
             saveFullSettings,
             resetOnboarding,
             syncAllData,
+            syncToCloud,
             forceResync,
             lastEventSyncTime,
+            syncStatus,
             loading
         }}>
             {children}

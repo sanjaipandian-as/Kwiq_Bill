@@ -1,4 +1,4 @@
-import { db } from './database';
+import { db, clearDatabase } from './database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { getAccessToken, getOrCreateFolder, uploadFileToFolder, fetchWithTimeout } from './googleDriveservices';
@@ -21,6 +21,8 @@ export const EventTypes = {
     EXPENSE_UPDATED: 'EXPENSE_UPDATED',
     EXPENSE_DELETED: 'EXPENSE_DELETED',
     INVOICE_DELETED: 'INVOICE_DELETED',
+    INVOICE_UPDATED: 'INVOICE_UPDATED',
+    INVOICE_STATUS_UPDATED: 'INVOICE_STATUS_UPDATED',
     PRODUCT_DELETED: 'PRODUCT_DELETED',
     PRODUCT_STOCK_ADJUSTED: 'PRODUCT_STOCK_ADJUSTED',
 };
@@ -96,20 +98,24 @@ export const SyncService = {
     /**
      * "Turn Sync On" - Fetch, Filter, Apply
      */
-    async syncDown() {
-        console.log('[Sync] Starting Sync Down...');
+    async syncDown(onProgress = null) {
+        const updateStatus = (msg) => {
+            console.log(`[Sync] ${msg}`);
+            if (onProgress) onProgress(msg);
+        };
+
+        updateStatus('Starting Sync Down...');
         try {
             const accessToken = await getAccessToken();
             if (!accessToken) {
-                console.log('[Sync] No access token, aborting sync down.');
+                updateStatus('No access token, aborting sync.');
                 return;
             }
             const folderId = await this.getEventsFolderId(accessToken);
 
             // 1. List all files in events folder
+            updateStatus('Fetching file list from Drive...');
             const query = `'${folderId}' in parents and trashed=false`;
-            // Note: Google Drive API pagination should be handled for large lists, 
-            // but for this implementation we fetch the first page (usually 100-1000 files).
             const res = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name`, {
                 headers: { Authorization: `Bearer ${accessToken}` }
             });
@@ -121,18 +127,9 @@ export const SyncService = {
             const processedIds = processedIdsStr ? JSON.parse(processedIdsStr) : [];
             const processedSet = new Set(processedIds);
 
-            // Filter out files that don't look like events or are already processed
-            // We rely on downloading the content to allow true idempotency check via eventId
-            // Optimization: Filter by name structure if possible, but strict check is better.
+            updateStatus(`Found ${files.length} files. Checking for new events...`);
 
-            console.log(`[Sync Debug] Found ${files.length} files in Drive folder.`);
-            if (files.length > 0) {
-                console.log(`[Sync Debug] First 5 files: ${JSON.stringify(files.slice(0, 5).map(f => f.name))}`);
-            }
-            console.log(`[Sync Debug] Already processed ${processedSet.size} events locally.`);
-
-            // Sort by filename (which includes timestamp) to ensure chronological order
-            // format: event_{ISO_TIMESTAMP}_{TYPE}_{EVENT_ID}.json
+            // Sort by filename 
             files.sort((a, b) => a.name.localeCompare(b.name));
 
             // 3. Download and Apply Events
@@ -143,7 +140,12 @@ export const SyncService = {
                 return !processedSet.has(probableEventId);
             });
 
-            console.log(`[Sync] ${filesToProcess.length} new events to process.`);
+            if (filesToProcess.length === 0) {
+                updateStatus('Cloud is already up to date.');
+                return;
+            }
+
+            updateStatus(`${filesToProcess.length} new events found.`);
 
             // Optimization: Fetch event contents in parallel batches
             const BATCH_SIZE = 10;
@@ -151,7 +153,7 @@ export const SyncService = {
 
             for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
                 const batch = filesToProcess.slice(i, i + BATCH_SIZE);
-                console.log(`[Sync] Downloading batch ${i / BATCH_SIZE + 1}...`);
+                updateStatus(`Processing Batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(filesToProcess.length / BATCH_SIZE)}...`);
 
                 const envelopes = await Promise.all(batch.map(async (file) => {
                     try {
@@ -176,10 +178,6 @@ export const SyncService = {
                         processedCount++;
                     } catch (applyError) {
                         console.error(`[Sync] Failed to apply event ${envelope.eventId}:`, applyError.message);
-                        if (applyError.message.includes('UNIQUE constraint failed')) {
-                            processedIds.push(envelope.eventId);
-                            processedSet.add(envelope.eventId);
-                        }
                     }
                 }
             }
@@ -187,7 +185,7 @@ export const SyncService = {
             // Save updated processed list
             await AsyncStorage.setItem(PROCESSED_EVENTS_KEY, JSON.stringify(processedIds));
             await AsyncStorage.setItem(LAST_SYNCED_KEY, new Date().toISOString());
-            console.log(`[Sync] Sync Down Complete. Processed ${processedCount} new events.`);
+            updateStatus(`Sync Complete! Applied ${processedCount} new events.`);
 
         } catch (error) {
             console.error('[Sync] Sync Down Error:', error);
@@ -199,12 +197,10 @@ export const SyncService = {
      */
     async resetSyncState() {
         try {
+            console.log('[Sync] Wiping local data for full re-sync...');
+            await clearDatabase();
             await AsyncStorage.removeItem(PROCESSED_EVENTS_KEY);
             await AsyncStorage.removeItem(LAST_SYNCED_KEY);
-            // Also clear pending queue to avoid re-uploading conflicts if needed?
-            // No, keep pending queue.
-            // processedIds = []; // These are local variables in syncDown, not global state
-            // processedSet = new Set(); // These are local variables in syncDown, not global state
             console.log('[Sync] Sync State Reset Successfully');
             return true;
         } catch (e) {
@@ -259,12 +255,30 @@ export const SyncService = {
                     );
 
                     // 2. Deduct Stock
-                    // "Stock is calculated from Invoices" -> We update local cache
                     if (payload.items && Array.isArray(payload.items)) {
                         for (const item of payload.items) {
-                            // item.productId, item.quantity
-                            // If product exists locally, decrement stock
                             db.runSync(`UPDATE products SET stock = stock - ? WHERE id = ?`, [item.quantity, item.productId || item.id]);
+                        }
+                    }
+
+                    // 3. Update Customer Stats (Loyalty & Balance)
+                    if (payload.customer_id || payload.customerId) {
+                        try {
+                            const cid = payload.customer_id || payload.customerId;
+                            const received = parseFloat(payload.amountReceived) || 0;
+                            const total = parseFloat(payload.total) || 0;
+                            const outstandingDelta = Math.max(0, total - received);
+
+                            db.runSync(
+                                `UPDATE customers SET 
+                                    loyaltyPoints = loyaltyPoints + 1,
+                                    amountPaid = amountPaid + ?,
+                                    outstanding = outstanding + ?
+                                 WHERE id = ?`,
+                                [received, outstandingDelta, String(cid)]
+                            );
+                        } catch (custErr) {
+                            console.log('[Sync] Customer update skipped (maybe guest or deleted):', custErr.message);
                         }
                     }
                 }
@@ -274,8 +288,8 @@ export const SyncService = {
                 const exists = db.getAllSync(`SELECT id FROM products WHERE id = ?`, [payload.id]);
                 if (exists.length === 0) {
                     db.runSync(
-                        `INSERT INTO products (id, name, sku, category, price, stock, unit, tax_rate, variants, variant, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        `INSERT INTO products (id, name, sku, category, price, stock, min_stock, unit, tax_rate, variants, variant, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             String(payload.id),
                             String(payload.name || ''),
@@ -283,6 +297,7 @@ export const SyncService = {
                             String(payload.category || ''),
                             Number(payload.price || 0),
                             Number(payload.stock || 0),
+                            Number(payload.minStock || payload.min_stock || 0),
                             String(payload.unit || 'pc'),
                             Number(payload.tax_rate || 0),
                             JSON.stringify(payload.variants || []),
@@ -294,12 +309,14 @@ export const SyncService = {
                 }
 
             } else if (type === EventTypes.PRODUCT_UPDATED) {
-                // Update Product Details, ignore Stock
+                // Update Product Details, ignore Stock (Stock is managed by adjustments/invoices)
                 db.runSync(
-                    `UPDATE products SET name = ?, category = ?, price = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
+                    `UPDATE products SET name = ?, sku = ?, category = ?, price = ?, min_stock = ?, unit = ?, tax_rate = ?, variants = ?, variant = ?, updated_at = ? WHERE id = ?`,
                     [
-                        payload.name, payload.category, payload.price, payload.unit, payload.tax_rate,
-                        JSON.stringify(payload.variants), payload.variant, payload.updated_at,
+                        payload.name, payload.sku, payload.category, payload.price,
+                        (payload.minStock || payload.min_stock || 0),
+                        payload.unit, payload.tax_rate,
+                        JSON.stringify(payload.variants || []), payload.variant, payload.updated_at,
                         payload.id
                     ]
                 );
@@ -308,8 +325,8 @@ export const SyncService = {
                 const exists = db.getAllSync(`SELECT id FROM customers WHERE id = ?`, [payload.id]);
                 if (exists.length === 0) {
                     db.runSync(
-                        `INSERT INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        `INSERT INTO customers (id, name, phone, email, type, gstin, address, source, tags, loyaltyPoints, outstanding, amountPaid, notes, created_at, updated_at, whatsappOptIn, smsOptIn)
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             payload.id, payload.name, payload.phone, payload.email, payload.type,
                             payload.gstin,
@@ -317,6 +334,8 @@ export const SyncService = {
                             payload.source,
                             Array.isArray(payload.tags) ? payload.tags.join(',') : payload.tags,
                             payload.loyaltyPoints || 0,
+                            payload.outstanding || 0,
+                            payload.amountPaid || 0,
                             payload.notes,
                             payload.created_at, payload.updated_at,
                             payload.whatsappOptIn ? 1 : 0, payload.smsOptIn ? 1 : 0
@@ -326,13 +345,15 @@ export const SyncService = {
 
             } else if (type === EventTypes.CUSTOMER_UPDATED) {
                 db.runSync(
-                    `UPDATE customers SET name = ?, phone = ?, email = ?, type = ?, gstin = ?, address = ?, source = ?, tags = ?, loyaltyPoints = ?, notes = ?, updated_at = ?, whatsappOptIn = ?, smsOptIn = ? WHERE id = ?`,
+                    `UPDATE customers SET name = ?, phone = ?, email = ?, type = ?, gstin = ?, address = ?, source = ?, tags = ?, loyaltyPoints = ?, outstanding = ?, amountPaid = ?, notes = ?, updated_at = ?, whatsappOptIn = ?, smsOptIn = ? WHERE id = ?`,
                     [
                         payload.name, payload.phone, payload.email, payload.type, payload.gstin,
                         typeof payload.address === 'object' ? JSON.stringify(payload.address) : payload.address,
                         payload.source,
                         Array.isArray(payload.tags) ? payload.tags.join(',') : payload.tags,
                         payload.loyaltyPoints || 0,
+                        payload.outstanding || 0,
+                        payload.amountPaid || 0,
                         payload.notes,
                         payload.updated_at,
                         payload.whatsappOptIn ? 1 : 0, payload.smsOptIn ? 1 : 0,
@@ -380,7 +401,28 @@ export const SyncService = {
                     }
                 }
 
-                // 2. Delete Invoice
+                // 2. Reverse Customer Stats
+                if (payload.customer_id || payload.customerId) {
+                    try {
+                        const cid = payload.customer_id || payload.customerId;
+                        const received = parseFloat(payload.amountReceived) || 0;
+                        const total = parseFloat(payload.total) || 0;
+                        const outstandingDelta = Math.max(0, total - received);
+
+                        db.runSync(
+                            `UPDATE customers SET 
+                                loyaltyPoints = MAX(0, loyaltyPoints - 1),
+                                amountPaid = amountPaid - ?,
+                                outstanding = outstanding - ?
+                             WHERE id = ?`,
+                            [received, outstandingDelta, String(cid)]
+                        );
+                    } catch (custErr) {
+                        console.log('[Sync] Customer restore skipped:', custErr.message);
+                    }
+                }
+
+                // 3. Delete Invoice
                 db.runSync(`DELETE FROM invoices WHERE id = ?`, [payload.id]);
 
             } else if (type === EventTypes.CUSTOMER_DELETED) {
@@ -400,6 +442,27 @@ export const SyncService = {
                 );
             } else if (type === EventTypes.EXPENSE_DELETED) {
                 db.runSync(`DELETE FROM expenses WHERE id = ?`, [payload.id]);
+
+            } else if (type === EventTypes.INVOICE_UPDATED) {
+                const itemsStr = JSON.stringify(payload.items);
+                const paymentsStr = JSON.stringify(payload.payments || []);
+                db.runSync(
+                    `UPDATE invoices SET 
+                        customer_id = ?, customer_name = ?, date = ?, type = ?, items = ?, subtotal = ?, tax = ?, discount = ?, 
+                        total = ?, status = ?, payments = ?, updated_at = ?, taxType = ?, grossTotal = ?, itemDiscount = ?, 
+                        additionalCharges = ?, roundOff = ?, amountReceived = ?, internalNotes = ?
+                     WHERE id = ?`,
+                    [
+                        payload.customer_id || payload.customerId, payload.customer_name || payload.customerName,
+                        payload.date, payload.type, itemsStr, payload.subtotal, payload.tax, payload.discount,
+                        payload.total, payload.status, paymentsStr, payload.updated_at, payload.taxType,
+                        payload.grossTotal, payload.itemDiscount, payload.additionalCharges, payload.roundOff,
+                        payload.amountReceived, payload.internalNotes, payload.id
+                    ]
+                );
+
+            } else if (type === EventTypes.INVOICE_STATUS_UPDATED) {
+                db.runSync(`UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?`, [payload.status, payload.updated_at, payload.id]);
 
             } else if (type === EventTypes.PRODUCT_STOCK_ADJUSTED) {
                 db.runSync(`UPDATE products SET stock = ? WHERE id = ?`, [payload.stock, payload.id]);

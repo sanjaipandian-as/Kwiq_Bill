@@ -206,6 +206,71 @@ export const syncUserDataToDrive = async (user, allData) => {
       }
     }
 
+    // 3. Generate and Upload Tax Report (GST Details)
+    if (allData.invoices && Array.isArray(allData.invoices)) {
+      try {
+        let totalSales = 0;
+        let totalGST = 0;
+        let totalSGST = 0;
+        let totalCGST = 0;
+        let totalIGST = 0;
+
+        const taxDetails = allData.invoices.map(inv => {
+          const tax = inv.tax || 0;
+          const amount = inv.total || 0;
+
+          // Basic estimation logic if tax breakdown isn't stored explicitly
+          // In a real scenario, this should come from inv.taxDetails or similar
+          let sgst = 0, cgst = 0, igst = 0;
+
+          // Check if explicit details exist (assuming they might be stored in a 'taxDetails' column or parsed)
+          // For now, using the same logic as GSTPage for consistency
+          if (inv.taxType === 'inter') {
+            igst = tax;
+          } else {
+            sgst = tax / 2;
+            cgst = tax / 2;
+          }
+
+          totalSales += amount;
+          totalGST += tax;
+          totalSGST += sgst;
+          totalCGST += cgst;
+          totalIGST += igst;
+
+          return {
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber || inv.id,
+            date: inv.date,
+            customerName: inv.customer_name,
+            totalAmount: amount,
+            totalTax: tax,
+            sgst,
+            cgst,
+            igst
+          };
+        });
+
+        const taxReport = {
+          generatedAt: new Date().toISOString(),
+          summary: {
+            totalSales,
+            totalGST,
+            totalSGST,
+            totalCGST,
+            totalIGST
+          },
+          details: taxDetails
+        };
+
+        await uploadFileToFolder(accessToken, folderId, 'tax_report.json', JSON.stringify(taxReport, null, 2));
+        console.log('Uploaded tax_report.json to Drive.');
+
+      } catch (e) {
+        console.warn('Error generating tax report for Drive:', e);
+      }
+    }
+
     // Also save User Details in the same folder for reference
     await uploadFileToFolder(accessToken, folderId, 'user_profile.json', JSON.stringify(user, null, 2));
 
@@ -287,8 +352,27 @@ export const restoreUserDataFromDrive = async (user) => {
 
     // 1. Restore Settings
     if (settings && Array.isArray(settings) && settings.length > 0) {
-      await AsyncStorage.setItem('app_settings', JSON.stringify(settings[0]));
-      console.log('[Restore] Settings restored.');
+      try {
+        const localSaved = await AsyncStorage.getItem('app_settings');
+        const localSettings = localSaved ? JSON.parse(localSaved) : {};
+        const driveSettings = settings[0];
+
+        // Deep merge drive settings with local
+        const merged = {
+          ...localSettings,
+          ...driveSettings,
+          store: { ...localSettings.store, ...(driveSettings.store || {}) },
+          tax: { ...localSettings.tax, ...(driveSettings.tax || {}) },
+          invoice: { ...localSettings.invoice, ...(driveSettings.invoice || {}) },
+          defaults: { ...localSettings.defaults, ...(driveSettings.defaults || {}) }
+        };
+
+        await AsyncStorage.setItem('app_settings', JSON.stringify(merged));
+        console.log('[Restore] Settings merged and restored.');
+      } catch (e) {
+        console.warn('[Restore] Settings merge failed, forcing overwrite:', e);
+        await AsyncStorage.setItem('app_settings', JSON.stringify(settings[0]));
+      }
     }
 
     // 2. Restore Products

@@ -13,7 +13,8 @@ const MENU_WIDTH = width * 0.82;
 const MENU_ITEMS = [
     { id: 'Invoices', label: 'History & Invoices', icon: FileText, color: '#000' },
     { id: 'Expenses', label: 'Expense Tracker', icon: Receipt, color: '#ef4444' },
-    { id: 'Reports', label: 'Business Reports', icon: PieChart, color: '#000' },
+    { id: 'Reports', label: 'Business Reports', icon: PieChart, color: '#2563eb' },
+    { id: 'GST', label: 'GST Filing & Stats', icon: PieChart, color: '#d97706' },
 ];
 
 const SideMenu = ({ isOpen, onClose }) => {

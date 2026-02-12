@@ -3,6 +3,60 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ScrollVi
 import { Trash2, Plus, Minus, Percent, Search, Upload, Scan, Package, Tag, Award, MessageSquare, ChevronUp, ChevronDown, X } from 'lucide-react-native';
 import { useProducts } from '../../../context/ProductContext';
 import BottomFunctionBar from './BottomFunctionBar';
+
+// Helper Component for Safe Quantity Input
+const QuantityInput = ({ value, onChange, min = 0.01 }) => {
+    const [localVal, setLocalVal] = useState(String(value));
+    const [isFocused, setIsFocused] = useState(false);
+
+    useEffect(() => {
+        // Only sync if not focused to avoid fighting with user typing
+        if (!isFocused) {
+            setLocalVal(String(value));
+        }
+    }, [value, isFocused]);
+
+    const handleCommit = () => {
+        const num = parseFloat(localVal);
+        if (!isNaN(num) && num >= min) {
+            onChange(num);
+        } else {
+            setLocalVal(String(value));
+        }
+    };
+
+    return (
+        <TextInput
+            style={{
+                fontSize: 16,
+                fontWeight: '900',
+                color: '#000',
+                minWidth: 45,
+                textAlign: 'center',
+                padding: 4,
+                backgroundColor: '#fff',
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: isFocused ? '#000' : '#e2e8f0'
+            }}
+            value={localVal}
+            keyboardType="decimal-pad"
+            selectTextOnFocus
+            onChangeText={setLocalVal}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => {
+                setIsFocused(false);
+                handleCommit();
+            }}
+            onSubmitEditing={() => {
+                handleCommit();
+                Keyboard.dismiss();
+            }}
+            returnKeyType="done"
+        />
+    );
+};
+
 // ImportProductModal removed
 const BillingGrid = ({
     products,
@@ -31,6 +85,7 @@ const BillingGrid = ({
     const [sortBy, setSortBy] = React.useState('name');
     const [sortOrder, setSortOrder] = React.useState('asc');
     const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+    const [isSearchFocused, setIsSearchFocused] = useState(false);
 
     useEffect(() => {
         const keyboardDidShowListener = Keyboard.addListener(
@@ -88,7 +143,12 @@ const BillingGrid = ({
                             >
                                 <Minus size={14} color="#000" />
                             </TouchableOpacity>
-                            <Text style={styles.qtyText}>{item.quantity}</Text>
+
+                            <QuantityInput
+                                value={item.quantity}
+                                onChange={(val) => updateQuantity(item.id, val)}
+                            />
+
                             <TouchableOpacity
                                 onPress={(e) => { e.stopPropagation(); updateQuantity(item.id, (item.quantity || 1) + 1); }}
                                 style={styles.qtyAction}
@@ -131,8 +191,8 @@ const BillingGrid = ({
 
     return (
         <View style={styles.container}>
-            {/* Cart List Section - Collapsed when searching */}
-            {!isKeyboardVisible && (
+            {/* Cart List Section - Collapsed ONLY when actively searching */}
+            {!isSearchFocused && (
                 <View style={styles.cartSection}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>ITEMS ({cart.length})</Text>
@@ -198,10 +258,10 @@ const BillingGrid = ({
 
             {/* Suggestions/Search Section */}
             <KeyboardAvoidingView
-                style={[styles.suggestionSection, isKeyboardVisible && { flex: 1, paddingTop: 10 }]}
+                style={[styles.suggestionSection, (isKeyboardVisible || isSearchFocused) && { flex: 1, paddingTop: 10 }]}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-                {cart.length > 0 && !isKeyboardVisible && (
+                {cart.length > 0 && !isSearchFocused && !isKeyboardVisible && (
                     <BottomFunctionBar
                         onFunctionClick={onFunctionClick}
                         variant="inline"
@@ -216,6 +276,8 @@ const BillingGrid = ({
                             value={searchQuery}
                             onChangeText={setSearchQuery}
                             placeholderTextColor="#94a3b8"
+                            onFocus={() => setIsSearchFocused(true)}
+                            onBlur={() => setIsSearchFocused(false)}
                         />
                     </View>
                     <TouchableOpacity
@@ -248,10 +310,16 @@ const BillingGrid = ({
                             style={styles.suggestionItem}
                             onPress={() => onAddQuickItem && onAddQuickItem(item)}
                         >
-                            <Text style={styles.suggestedName} numberOfLines={1}>{item.name}</Text>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                                <Text style={[styles.suggestedName, { flex: 1, marginRight: 4 }]} numberOfLines={2}>{item.name}</Text>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: (item.stock || 0) <= 0 ? '#ef4444' : '#64748b', marginTop: 2 }}>
+                                    Qty: {item.stock || 0}
+                                </Text>
+                            </View>
+
                             <View style={styles.suggestedFooter}>
                                 <Text style={styles.suggestedPrice}>₹{item.price}</Text>
-                                <View style={styles.addBtnSmall}>
+                                <View style={[styles.addBtnSmall, (item.stock || 0) <= 0 && { backgroundColor: '#cbd5e1' }]}>
                                     <Plus size={14} color="#fff" />
                                 </View>
                             </View>

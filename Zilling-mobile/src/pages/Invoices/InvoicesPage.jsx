@@ -389,114 +389,149 @@ export default function InvoicesPage() {
 
               {selectedInvoice && (
                 <ScrollView style={styles.detailScroll} showsVerticalScrollIndicator={false}>
-                  <View style={styles.detailHeaderBox}>
-                    <View style={styles.detailRow}>
+                  {/* Status & ID Header */}
+                  <View style={styles.summaryTopCard}>
+                    <View style={styles.summaryTopMain}>
                       <View>
-                        <Text style={styles.detailLabel}>Invoice No</Text>
-                        <Text style={styles.detailValueLarge}>{selectedInvoice.invoiceNumber || selectedInvoice.id}</Text>
+                        <Text style={styles.summaryIdLabel}>INVOICE NO</Text>
+                        <Text style={styles.summaryIdValue}>{selectedInvoice.invoiceNumber || selectedInvoice.id}</Text>
                       </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={styles.detailLabel}>Status</Text>
+                      <View style={[
+                        styles.modernStatusBadge,
+                        { backgroundColor: selectedInvoice.status === 'PAID' ? '#ecfdf5' : '#fef2f2' }
+                      ]}>
                         <View style={[
-                          styles.statusBadge,
-                          { borderColor: selectedInvoice.status === 'PAID' ? '#10b981' : '#ef4444' }
-                        ]}>
-                          <Text style={[
-                            styles.statusText,
-                            { color: selectedInvoice.status === 'PAID' ? '#10b981' : '#ef4444' }
-                          ]}>{selectedInvoice.status}</Text>
+                          styles.statusDot,
+                          { backgroundColor: selectedInvoice.status === 'PAID' ? '#10b981' : '#ef4444' }
+                        ]} />
+                        <Text style={[
+                          styles.modernStatusText,
+                          { color: selectedInvoice.status === 'PAID' ? '#059669' : '#dc2626' }
+                        ]}>{selectedInvoice.status}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.summaryMetaRow}>
+                      <View style={styles.metaItem}>
+                        <Clock size={14} color="#64748b" />
+                        <Text style={styles.metaText}>{new Date(selectedInvoice.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+                      </View>
+                      <View style={styles.metaItem}>
+                        <TrendingUp size={14} color="#64748b" />
+                        <Text style={styles.metaText}>Sales Category</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Customer Info */}
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Customer Details</Text>
+                  </View>
+                  <View style={styles.customerCard}>
+                    <View style={styles.customerAvatar}>
+                      <Text style={styles.avatarText}>{(selectedInvoice.customerName || 'W').charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <View style={styles.customerInfo}>
+                      <Text style={styles.customerNameMain}>{selectedInvoice.customerName || 'Walk-in Customer'}</Text>
+                      {selectedInvoice.fullCustomer ? (
+                        <View style={styles.customerMeta}>
+                          <Text style={styles.customerSubText}>{selectedInvoice.fullCustomer.phone}</Text>
+                          {selectedInvoice.fullCustomer.email && <Text style={styles.customerSubText}> • {selectedInvoice.fullCustomer.email}</Text>}
                         </View>
-                      </View>
-                    </View>
-
-                    <View style={[styles.detailRow, { marginBottom: 0 }]}>
-                      <View>
-                        <Text style={styles.detailLabel}>Date</Text>
-                        <Text style={styles.detailValue}>{new Date(selectedInvoice.date).toLocaleDateString()}</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={styles.detailLabel}>Category</Text>
-                        <Text style={styles.detailValue}>Sales</Text>
-                      </View>
+                      ) : (
+                        <Text style={styles.customerSubText}>Standard Billing</Text>
+                      )}
                     </View>
                   </View>
 
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={styles.detailLabel}>Customer Details</Text>
-                    <Text style={[styles.detailValueLarge, { fontSize: 20 }]}>{selectedInvoice.customerName || 'Walk-in'}</Text>
-                    {selectedInvoice.fullCustomer && (
-                      <View style={{ marginTop: 8, gap: 4 }}>
-                        <Text style={styles.detailSub}>{selectedInvoice.fullCustomer.phone}</Text>
-                        {selectedInvoice.fullCustomer.email && <Text style={styles.detailSub}>{selectedInvoice.fullCustomer.email}</Text>}
-                        {selectedInvoice.fullCustomer.address && <Text style={styles.detailSub}>{selectedInvoice.fullCustomer.address}</Text>}
-                      </View>
-                    )}
+                  {/* Bill Items */}
+                  <View style={[styles.sectionHeader, { marginTop: 32 }]}>
+                    <Text style={styles.sectionTitle}>Bill Items</Text>
+                    <Text style={styles.itemCountText}>{selectedInvoice.items?.length || 0} Items</Text>
                   </View>
 
-                  <Text style={[styles.detailLabel, { marginBottom: 16 }]}>Bill Items</Text>
-                  <View style={styles.itemsList}>
+                  <View style={styles.itemsContainer}>
                     {selectedInvoice.items && selectedInvoice.items.map((item, index) => (
-                      <View key={index} style={styles.itemRow}>
-                        <Text style={styles.itemName}>{item.name}</Text>
-                        <Text style={styles.itemQty}>x{item.quantity}</Text>
-                        <Text style={styles.itemPrice}>₹{(item.price * item.quantity).toFixed(2)}</Text>
+                      <View key={index} style={[styles.modernItemRow, index === selectedInvoice.items.length - 1 && { borderBottomWidth: 0 }]}>
+                        <View style={styles.itemMainInfo}>
+                          <Text style={styles.modernItemName}>{item.name}</Text>
+                          <Text style={styles.modernItemPricePer}>₹{item.price?.toFixed(2)} × {item.quantity}</Text>
+                        </View>
+                        <Text style={styles.modernItemTotal}>₹{(item.price * item.quantity).toFixed(2)}</Text>
                       </View>
                     ))}
                   </View>
 
-                  <View style={styles.totalSection}>
-                    <View style={styles.totalRowSmall}>
-                      <Text style={styles.detailLabel}>Subtotal</Text>
-                      <Text style={styles.detailValue}>₹{selectedInvoice.subtotal?.toFixed(2) || '0.00'}</Text>
+                  {/* Calculation Details */}
+                  <View style={styles.modernTotalCard}>
+                    <View style={styles.calcRow}>
+                      <Text style={styles.calcLabel}>Subtotal</Text>
+                      <Text style={styles.calcValue}>₹{selectedInvoice.subtotal?.toFixed(2) || '0.00'}</Text>
                     </View>
+
                     {selectedInvoice.tax > 0 && (
-                      <View style={styles.totalRowSmall}>
-                        <Text style={styles.detailLabel}>Tax Amount</Text>
-                        <Text style={styles.detailValue}>₹{selectedInvoice.tax.toFixed(2)}</Text>
+                      <View style={styles.calcRow}>
+                        <Text style={styles.calcLabel}>Tax (Included)</Text>
+                        <Text style={styles.calcValue}>₹{selectedInvoice.tax.toFixed(2)}</Text>
                       </View>
                     )}
+
                     {selectedInvoice.discount > 0 && (
-                      <View style={styles.totalRowSmall}>
-                        <Text style={styles.detailLabel}>Discount</Text>
-                        <Text style={[styles.detailValue, { color: '#ef4444' }]}>-₹{selectedInvoice.discount.toFixed(2)}</Text>
+                      <View style={styles.calcRow}>
+                        <Text style={styles.calcLabel}>Discount Saved</Text>
+                        <Text style={[styles.calcValue, { color: '#ef4444' }]}>-₹{selectedInvoice.discount.toFixed(2)}</Text>
                       </View>
                     )}
+
                     {selectedInvoice.additionalCharges > 0 && (
-                      <View style={styles.totalRowSmall}>
-                        <Text style={styles.detailLabel}>Extra Charges</Text>
-                        <Text style={styles.detailValue}>+₹{selectedInvoice.additionalCharges.toFixed(2)}</Text>
+                      <View style={styles.calcRow}>
+                        <Text style={styles.calcLabel}>Extra Charges</Text>
+                        <Text style={styles.calcValue}>+₹{selectedInvoice.additionalCharges.toFixed(2)}</Text>
                       </View>
                     )}
-                    <View style={styles.totalRowLarge}>
-                      <Text style={[styles.detailLabel, { fontSize: 16, color: '#000' }]}>Net Total</Text>
-                      <Text style={[styles.detailValueLarge, { color: '#10b981' }]}>₹{selectedInvoice.total?.toFixed(2)}</Text>
+
+                    <View style={styles.modernNetTotalRow}>
+                      <View>
+                        <Text style={styles.netTotalLabel}>NET TOTAL</Text>
+                        <Text style={styles.netTotalSub}>Inclusive of all taxes</Text>
+                      </View>
+                      <Text style={styles.netTotalValue}>₹{selectedInvoice.total?.toFixed(2)}</Text>
                     </View>
                   </View>
 
                   {selectedInvoice.internalNotes && selectedInvoice.internalNotes.trim() !== '' && (
-                    <View style={{ marginTop: 24, padding: 16, backgroundColor: '#fdfce6', borderRadius: 16, borderLeftWidth: 4, borderLeftColor: '#facc15' }}>
-                      <Text style={styles.detailLabel}>REMARKS</Text>
-                      <Text style={[styles.detailValue, { fontSize: 14, fontStyle: 'italic', color: '#854d0e' }]}>{selectedInvoice.internalNotes}</Text>
+                    <View style={styles.remarksBox}>
+                      <View style={styles.remarksHeader}>
+                        <FileText size={16} color="#854d0e" />
+                        <Text style={styles.remarksTitle}>REMARKS</Text>
+                      </View>
+                      <Text style={styles.remarksText}>{selectedInvoice.internalNotes}</Text>
                     </View>
                   )}
 
-                  <View style={styles.actionGrid}>
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleEditPress(selectedInvoice)}>
-                      <FileText size={20} color="#000" />
-                      <Text style={styles.actionBtnText}>Edit</Text>
+                  <View style={styles.modernActionGrid}>
+                    <TouchableOpacity style={styles.modernActionBtn} onPress={() => handleEditPress(selectedInvoice)}>
+                      <View style={[styles.actionIconContainer, { backgroundColor: '#f1f5f9' }]}>
+                        <FileText size={20} color="#000" />
+                      </View>
+                      <Text style={styles.modernActionText}>Edit</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => handlePrint(selectedInvoice)}>
-                      <Download size={20} color="#000" />
-                      <Text style={styles.actionBtnText}>Save PDF</Text>
+                    <TouchableOpacity style={styles.modernActionBtn} onPress={() => handlePrint(selectedInvoice)}>
+                      <View style={[styles.actionIconContainer, { backgroundColor: '#f1f5f9' }]}>
+                        <Download size={20} color="#000" />
+                      </View>
+                      <Text style={styles.modernActionText}>Save PDF</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={[styles.actionBtn, { borderColor: '#ef4444' }]}
+                      style={styles.modernActionBtn}
                       onPress={() => handleDelete(selectedInvoice)}
                     >
-                      <Trash2 size={20} color="#ef4444" />
-                      <Text style={[styles.actionBtnText, { color: '#ef4444' }]}>Delete</Text>
+                      <View style={[styles.actionIconContainer, { backgroundColor: '#fef2f2' }]}>
+                        <Trash2 size={20} color="#ef4444" />
+                      </View>
+                      <Text style={[styles.modernActionText, { color: '#ef4444' }]}>Delete</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={{ height: 40 }} />
@@ -766,51 +801,277 @@ const styles = StyleSheet.create({
   },
   savetxt: { color: 'white', fontWeight: '800', fontSize: 16 },
 
-  detailScroll: { padding: 24 },
-  detailHeaderBox: {
-    backgroundColor: '#fafafa',
+  detailScroll: { padding: 20 },
+  summaryTopCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
     padding: 20,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  summaryTopMain: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  summaryIdLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94a3b8',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  summaryIdValue: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#000',
+    letterSpacing: -0.5,
+  },
+  modernStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    gap: 6,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  modernStatusText: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  summaryMetaRow: {
+    flexDirection: 'row',
+    gap: 16,
+    paddingTop: 16,
+    borderTopWidth: 1.5,
+    borderTopColor: '#f8fafc',
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  itemCountText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+
+  customerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 20,
+    gap: 16,
+  },
+  customerAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  customerInfo: {
+    flex: 1,
+  },
+  customerNameMain: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#000',
+    marginBottom: 2,
+  },
+  customerMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  customerSubText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+
+  itemsContainer: {
+    backgroundColor: '#fff',
     borderRadius: 20,
     borderWidth: 1.5,
     borderColor: '#f1f5f9',
-    marginBottom: 24
+    overflow: 'hidden',
   },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  detailLabel: { fontSize: 12, color: '#64748b', marginBottom: 6, fontWeight: '800', textTransform: 'uppercase' },
-  detailValue: { fontSize: 16, fontWeight: '800', color: '#000' },
-  detailValueLarge: { fontSize: 22, fontWeight: '900', color: '#000' },
-  divider: { height: 1.5, backgroundColor: '#f1f5f9', marginVertical: 24 },
-
-  itemsList: { gap: 16 },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  itemName: { flex: 1, fontSize: 16, color: '#000', fontWeight: '700' },
-  itemQty: { width: 60, textAlign: 'center', color: '#64748b', fontSize: 14, fontWeight: '600' },
-  itemPrice: { width: 100, textAlign: 'right', fontWeight: '800', color: '#000', fontSize: 16 },
-
-  totalSection: { marginTop: 20, gap: 10 },
-  totalRowSmall: { flexDirection: 'row', justifyContent: 'space-between' },
-  totalRowLarge: {
+  modernItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
-    paddingTop: 15,
-    borderTopWidth: 1.5,
-    borderTopColor: '#000'
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  itemMainInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  modernItemName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#000',
+  },
+  modernItemPricePer: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  modernItemTotal: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#000',
   },
 
-  actionGrid: { flexDirection: 'row', gap: 12, marginTop: 32 },
-  actionBtn: {
+  modernTotalCard: {
+    marginTop: 24,
+    backgroundColor: '#fafafa',
+    padding: 20,
+    borderRadius: 24,
+    gap: 12,
+  },
+  calcRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  calcLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  calcValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#000',
+  },
+  modernNetTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1.5,
+    borderTopColor: '#e2e8f0',
+  },
+  netTotalLabel: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#000',
+    letterSpacing: 1,
+  },
+  netTotalSub: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  netTotalValue: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#10b981',
+  },
+
+  remarksBox: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: '#fffbeb',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#fef3c7',
+  },
+  remarksHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  remarksTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#854d0e',
+    letterSpacing: 1,
+  },
+  remarksText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400e',
+    lineHeight: 20,
+    fontStyle: 'italic',
+  },
+
+  modernActionGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 32,
+    gap: 12,
+  },
+  modernActionBtn: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#000',
-    backgroundColor: '#fff',
-    gap: 8
+    gap: 10,
   },
-  actionBtnText: { fontSize: 14, fontWeight: '800', color: '#000' },
+  actionIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+  },
+  modernActionText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#000',
+  },
 
   statusSelector: { flexDirection: 'row', gap: 12, marginTop: 10 },
   statusOption: {

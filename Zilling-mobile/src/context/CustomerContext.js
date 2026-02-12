@@ -28,18 +28,20 @@ export const CustomerProvider = ({ children }) => {
             const address = typeof data.address === 'object' ? JSON.stringify(data.address) : (data.address || "");
             const notes = data.notes || "";
             const amountPaid = parseFloat(data.amountPaid || 0);
+            const loyaltyPoints = parseInt(data.loyaltyPoints || 0);
+            const outstanding = parseFloat(data.outstanding || 0);
             const whatsappOptIn = data.whatsappOptIn ? 1 : 0;
             const smsOptIn = data.smsOptIn ? 1 : 0;
             const timestamp = new Date().toISOString();
 
             // 2. Physical Save to Device Storage
             db.runSync(
-                `INSERT OR REPLACE INTO customers (id, name, phone, email, gstin, type, tags, address, notes, amountPaid, whatsappOptIn, smsOptIn, created_at) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [id, name, phone, email, gstin, type, tags, address, notes, amountPaid, whatsappOptIn, smsOptIn, timestamp]
+                `INSERT OR REPLACE INTO customers (id, name, phone, email, gstin, type, tags, address, notes, amountPaid, loyaltyPoints, outstanding, whatsappOptIn, smsOptIn, created_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, name, phone, email, gstin, type, tags, address, notes, amountPaid, loyaltyPoints, outstanding, whatsappOptIn, smsOptIn, timestamp]
             );
 
-            const newCustomer = { ...data, id, name, phone, email, gstin, type, tags, address, notes, amountPaid, whatsappOptIn, smsOptIn, created_at: timestamp };
+            const newCustomer = { ...data, id, name, phone, email, gstin, type, tags, address, notes, amountPaid, loyaltyPoints, outstanding, whatsappOptIn, smsOptIn, created_at: timestamp };
             setCustomers(prev => [newCustomer, ...prev]);
 
             // [AutoSave Trigger]
@@ -69,17 +71,15 @@ export const CustomerProvider = ({ children }) => {
             const tags = Array.isArray(data.tags) ? data.tags.join(',') : (data.tags || "");
             const address = typeof data.address === 'object' ? JSON.stringify(data.address) : (data.address || "");
             const amountPaid = parseFloat(data.amountPaid || 0);
+            const loyaltyPoints = parseInt(data.loyaltyPoints || 0);
+            const outstanding = parseFloat(data.outstanding || 0);
             const whatsappOptIn = data.whatsappOptIn !== undefined ? (data.whatsappOptIn ? 1 : 0) : undefined;
             const smsOptIn = data.smsOptIn !== undefined ? (data.smsOptIn ? 1 : 0) : undefined;
             const timestamp = new Date().toISOString();
 
             // 3. Physical Update to Device Storage
-            // Only update opt-ins if provided (though typically we update full object, let's include them in query)
-            // To simplify, we'll update them if provided, or keep existing? 
-            // Better to assume data has latest.
-
             db.runSync(
-                `UPDATE customers SET name = ?, phone = ?, email = ?, gstin = ?, type = ?, tags = ?, address = ?, notes = ?, amountPaid = ?, whatsappOptIn = ?, smsOptIn = ?, updated_at = ? WHERE id = ?`,
+                `UPDATE customers SET name = ?, phone = ?, email = ?, gstin = ?, type = ?, tags = ?, address = ?, notes = ?, amountPaid = ?, loyaltyPoints = ?, outstanding = ?, whatsappOptIn = ?, smsOptIn = ?, updated_at = ? WHERE id = ?`,
                 [
                     name,
                     data.phone || "",
@@ -90,14 +90,16 @@ export const CustomerProvider = ({ children }) => {
                     address,
                     data.notes || "",
                     amountPaid,
+                    loyaltyPoints,
+                    outstanding,
                     data.whatsappOptIn ? 1 : 0,
-                    data.smsOptIn ? 1 : 0, // Assuming full update usually
+                    data.smsOptIn ? 1 : 0,
                     timestamp,
                     id
                 ]
             );
 
-            setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...data, name, tags, address, amountPaid, updated_at: timestamp } : c));
+            setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...data, name, tags, address, amountPaid, loyaltyPoints, outstanding, updated_at: timestamp } : c));
 
             // [AutoSave Trigger]
             triggerAutoSave();

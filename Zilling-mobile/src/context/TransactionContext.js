@@ -143,6 +143,17 @@ export const TransactionProvider = ({ children }) => {
                         [received, outstandingDelta, String(data.customerId)]
                     );
                     console.log(`[TransactionContext] Updated customer ${data.customerId}: +1 Loyalty, +${received} Paid, +${outstandingDelta} Due`);
+
+                    // [Sync Customer Stats]
+                    try {
+                        const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                        const updatedCust = db.getFirstSync('SELECT * FROM customers WHERE id = ?', [String(data.customerId)]);
+                        if (updatedCust) {
+                            SyncService.createAndUploadEvent(EventTypes.CUSTOMER_UPDATED, updatedCust);
+                        }
+                    } catch (syncCustErr) {
+                        console.log('[TransactionContext] Sync Customer Stats Error:', syncCustErr);
+                    }
                 } catch (custUpdateErr) {
                     console.error('[TransactionContext] Failed to update customer stats:', custUpdateErr);
                 }
@@ -190,6 +201,23 @@ export const TransactionProvider = ({ children }) => {
             try {
                 const { SyncService, EventTypes } = require('../services/OneWaySyncService');
                 SyncService.createAndUploadEvent(EventTypes.INVOICE_CREATED, newTx);
+
+                // [Enhanced Sync] Explicitly update stock in the cloud log for each item
+                if (data.items && Array.isArray(data.items)) {
+                    data.items.forEach(item => {
+                        const pid = item.productId || item.id;
+                        if (pid) {
+                            // Fetch the latest stock from local DB after restoration/deduction
+                            const prodRow = db.getFirstSync('SELECT stock FROM products WHERE id = ?', [String(pid)]);
+                            if (prodRow) {
+                                SyncService.createAndUploadEvent(EventTypes.PRODUCT_STOCK_ADJUSTED, {
+                                    id: pid,
+                                    stock: prodRow.stock
+                                });
+                            }
+                        }
+                    });
+                }
             } catch (syncErr) {
                 console.log('Sync Trigger Error:', syncErr);
             }
@@ -211,6 +239,14 @@ export const TransactionProvider = ({ children }) => {
 
             // [AutoSave]
             triggerAutoSave();
+
+            // [Sync]
+            try {
+                const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                SyncService.createAndUploadEvent(EventTypes.INVOICE_STATUS_UPDATED, { id, status, updated_at: new Date().toISOString() });
+            } catch (e) {
+                console.log('Sync Status Update Error:', e);
+            }
         } catch (err) {
             console.error('Update Status Error:', err);
             throw err;
@@ -273,6 +309,16 @@ export const TransactionProvider = ({ children }) => {
             setTransactions(prev => prev.map(tx => tx.id === id ? { ...data, items: data.items, payments: data.payments, date } : tx));
 
             triggerAutoSave();
+
+            // [Sync]
+            try {
+                const { SyncService, EventTypes } = require('../services/OneWaySyncService');
+                const updatedTx = { ...data, items: data.items, payments: data.payments, date, id, updated_at: new Date().toISOString() };
+                SyncService.createAndUploadEvent(EventTypes.INVOICE_UPDATED, updatedTx);
+            } catch (e) {
+                console.log('Sync Update Transaction Error:', e);
+            }
+
             return { ...data, id };
         } catch (err) {
             console.error('Edit Transaction SQL Error:', err);
