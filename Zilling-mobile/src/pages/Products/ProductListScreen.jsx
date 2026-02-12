@@ -1,15 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, Platform } from 'react-native';
-import { Plus, Search, Edit, Trash2, CheckSquare, Package, Tag, Filter, Upload, AlertCircle, ChevronRight, ChevronDown, Barcode, Layers, Box } from 'lucide-react-native';
+import { Plus, Search, Edit, Trash2, CheckSquare, Package, Tag, Filter, Upload, AlertCircle, ChevronRight, ChevronDown, Barcode, Layers, Box, Printer, Store } from 'lucide-react-native';
 import { useProducts } from '../../context/ProductContext';
+import { useSettings } from '../../context/SettingsContext';
 import ProductDrawer from './ProductDrawer';
 import ImportProductModal from '../Billing/components/ImportProductModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CategoryFilter } from '../../components/Expenses/CategoryFilter';
+import { printBarcode } from '../../utils/printUtils';
 
 const ProductsListScreen = ({ navigation }) => {
   const { products, loading, deleteProduct, bulkDeleteProducts, addProduct, updateProduct, fetchProducts, importProducts } = useProducts();
+  const { settings } = useSettings();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [importModalVisible, setImportModalVisible] = useState(false);
@@ -174,8 +177,8 @@ const ProductsListScreen = ({ navigation }) => {
               </View>
               <View style={styles.tagRow}>
                 <View style={styles.proCategoryBadge}>
-                  <Tag size={10} color="#64748b" />
-                  <Text style={styles.proCategoryText}>{item.category || 'NO CATEGORY'}</Text>
+                  <Store size={10} color="#64748b" />
+                  <Text style={styles.proCategoryText}>{(settings?.store?.name?.trim() || settings?.store?.legalName?.trim() || 'KWIQ BILLING')}</Text>
                 </View>
                 {item.brand && (
                   <Text style={styles.brandText}>• {item.brand}</Text>
@@ -250,11 +253,21 @@ const ProductsListScreen = ({ navigation }) => {
           {isExpanded && (
             <View style={styles.cardFooter}>
               <TouchableOpacity
+                style={[styles.miniAction, { backgroundColor: '#f0f9ff', flex: 1, borderWidth: 1.5, borderColor: '#e0f2fe' }]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  printBarcode(item.name, item.sku || item.barcode || item.id, settings);
+                }}
+              >
+                <Printer size={16} color="#0369a1" />
+                <Text style={[styles.miniActionText, { color: '#0369a1' }]}>BARCODE</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[styles.miniAction, { backgroundColor: '#f8fafc', flex: 1, borderWidth: 1.5, borderColor: '#f1f5f9' }]}
                 onPress={() => handleEdit(item)}
               >
                 <Edit size={16} color="#64748b" />
-                <Text style={styles.miniActionText}>EDIT PRODUCT</Text>
+                <Text style={styles.miniActionText}>EDIT</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.miniAction, { backgroundColor: '#fef2f2', borderWidth: 1.5, borderColor: '#fee2e2' }]}

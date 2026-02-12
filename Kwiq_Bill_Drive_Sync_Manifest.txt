@@ -1,0 +1,55 @@
+Kwiq Bill - Google Drive Sync Manifest
+======================================
+
+The following data categories and events are automatically synchronized to your Google Drive to ensure multi-device consistency and data safety:
+
+1. SALES & INVOICES
+-------------------
+- Invoice Creation: Full details of every bill generated.
+- Invoice Edits: Changes to existing bills (items, amounts, dates).
+- Status Updates: Marking bills as Paid, Pending, or Cancelled.
+- Invoice Deletion: Removes the record and triggers auto-stock restoration.
+
+2. INVENTORY & PRODUCTS
+-----------------------
+- Product Creation: Name, Category, Price, Unit, Tax Rate.
+- Product Details: Updates to descriptions, barcodes (SKU), and variants.
+- Stock Levels: 
+    * Real-time deduction on sales.
+    * Explicit stock synchronization after every invoice.
+    * Low-stock threshold (Min Stock) alerts.
+- Product Deletions: Clears product data across all devices.
+
+3. CUSTOMER DATA
+----------------
+- Profile: Names, Phone numbers, Emails, and Addresses.
+- Financials: 
+    * Amount Paid: Total lifetime revenue from the customer.
+    * Outstanding Dues: Pending balances for credit tracking.
+- Loyalty: Loyalty points and customer tags.
+- Preferences: WhatsApp and SMS opt-in settings.
+
+4. EXPENSE MANAGEMENT
+---------------------
+- New Expenses: Titles, categories, payment methods, and timestamps.
+- Adjustments: Manual changes to expense records.
+- Deletions: Removal of expense logs.
+
+5. SETTINGS & BRANDING
+----------------------
+- Store Profile: Shop name, Legal name, GSTIN, and Address.
+- User Profile: Login details and role.
+- Invoice Design: Selected templates, headers, footers, and logo settings.
+- Tax Configuration: SGST, CGST, and IGST groups.
+
+6. AUTO-SAVE BACKUPS (Local + Cloud)
+-----------------------------------
+- Instant JSON exports of your complete Customer, Product, and Invoice tables.
+- These are kept as "master copies" in your phone's storage and mirrored to Drive.
+
+--------------------------------------------------------------------------------
+Technical Detail:
+Data is stored using an "Event Sourcing" model in the 'Kwiqbill/events' folder 
+on your Google Drive, ensuring that even if you use multiple phones simultaneously, 
+every single action is merged without data loss.
+--------------------------------------------------------------------------------

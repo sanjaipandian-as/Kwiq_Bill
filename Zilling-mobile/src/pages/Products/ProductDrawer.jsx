@@ -12,8 +12,10 @@ import {
   Platform,
   FlatList
 } from 'react-native';
-import { X, Save, Search, Plus, ChevronDown, Trash2, Package, Tag, Layers, Barcode, TrendingUp, AlertCircle } from 'lucide-react-native';
+import { X, Save, Search, Plus, ChevronDown, Trash2, Package, Tag, Layers, Barcode, TrendingUp, AlertCircle, Printer } from 'lucide-react-native';
 import { db } from '../../services/database';
+import { useSettings } from '../../context/SettingsContext';
+import { printBarcode } from '../../utils/printUtils';
 
 const TAX_OPTIONS = [
   { label: 'None', value: 0 },
@@ -37,6 +39,7 @@ const TAX_OPTIONS = [
 ];
 
 const ProductDrawer = ({ visible, onClose, onSave, product }) => {
+  const { settings } = useSettings();
   const initialState = {
     name: '',
     category: '',
@@ -307,7 +310,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                     style={styles.premiumInput}
                     keyboardType="numeric"
                     value={form.stock.toString()}
-                    onChangeText={(v) => handleChange('stock', v)}
+                    onChangeText={(v) => handleChange('stock', v.replace(/[^0-9]/g, ''))}
                     placeholder="0"
                   />
                 </View>
@@ -317,7 +320,7 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                     style={styles.premiumInput}
                     keyboardType="numeric"
                     value={form.minStock.toString()}
-                    onChangeText={(v) => handleChange('minStock', v)}
+                    onChangeText={(v) => handleChange('minStock', v.replace(/[^0-9]/g, ''))}
                     placeholder="0"
                   />
                 </View>
@@ -331,6 +334,14 @@ const ProductDrawer = ({ visible, onClose, onSave, product }) => {
                     value={form.barcode}
                     onChangeText={(v) => handleChange('barcode', v)}
                   />
+                  {form.barcode?.length > 4 && (
+                    <TouchableOpacity
+                      style={[styles.scanAction, { backgroundColor: '#3b82f6' }]}
+                      onPress={() => printBarcode(form.name || 'Product', form.barcode, settings)}
+                    >
+                      <Printer size={20} color="#fff" />
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity style={styles.scanAction}>
                     <Barcode size={20} color="#fff" />
                   </TouchableOpacity>

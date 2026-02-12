@@ -8,13 +8,22 @@ const connectDB = async () => {
     try {
         console.log('Connecting to MongoDB...');
         const conn = await mongoose.connect(process.env.MONGO_URI, {
-            serverSelectionTimeoutMS: 5000 // Stop trying after 5 seconds instead of 10+
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
         });
         console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     } catch (error) {
-        console.error(`❌ MongoDB Connection Error: ${error.message}`);
-        console.error('Please verify if your IP address is whitelisted in MongoDB Atlas.');
-        throw error; // This will crash the server on start, which is what we want for debugging
+        console.error('\n❌ MongoDB Connection Error!');
+        console.error(`Error Details: ${error.message}`);
+        console.error('\nThis usually happens because:');
+        console.error('1. Your current IP address is NOT whitelisted in MongoDB Atlas.');
+        console.error('2. You are on a network (like a school or office) that blocks Port 27017.');
+        console.error('\nAction Required:');
+        console.error('1. Go to: https://cloud.mongodb.com/');
+        console.error('2. In your project, go to "Network Access"');
+        console.error('3. Click "Add IP Address" -> "Add Current IP Address"');
+        console.error('4. If already there, try adding "0.0.0.0/0" temporarily to test.');
+        throw error;
     }
 };
 

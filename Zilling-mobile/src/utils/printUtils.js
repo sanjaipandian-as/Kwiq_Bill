@@ -642,7 +642,7 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                                 <span style="font-weight:600; color:#6b7280; font-size: 13px;">Subtotal</span>
                                 <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals?.subtotal || 0).toFixed(2)}</span>
                             </div>
-                            ${bill.totals?.tax > 0 ? (bill.taxType === 'inter' ? `
+                            ${Number(bill.totals?.tax || 0) > 0 ? (bill.taxType === 'inter' ? `
                                 <div style="display: flex; justify-content: space-between; padding: 5px 0;">
                                     <span style="font-weight:600; color:#6b7280; font-size: 13px;">IGST</span>
                                     <span style="font-weight:700; color: #111;">${currency} ${Number(bill.totals.tax).toFixed(2)}</span>
@@ -886,11 +886,11 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                         <div class="footer-right">
                             <div class="summ-row"><span>SUBTOTAL</span><span>${currency}${(bill.totals?.subtotal || 0).toFixed(2)}</span></div>
                             
-                            ${(bill.totals?.tax > 0) ? (isInter ? `
-                                <div class="summ-row"><span>IGST</span><span>${currency}${(bill.totals.tax).toFixed(2)}</span></div>
+                            ${(Number(bill.totals?.tax || 0) > 0) ? (bill.taxType === 'inter' ? `
+                                <div class="summ-row"><span>IGST</span><span>${currency}${Number(bill.totals.tax).toFixed(2)}</span></div>
                             ` : `
-                                <div class="summ-row"><span>CGST</span><span>${currency}${(bill.totals.tax / 2).toFixed(2)}</span></div>
-                                <div class="summ-row"><span>SGST</span><span>${currency}${(bill.totals.tax / 2).toFixed(2)}</span></div>
+                                <div class="summ-row"><span>CGST</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
+                                <div class="summ-row"><span>SGST</span><span>${currency}${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
                             `) : ''}
 
                             ${(bill.totals?.discount > 0) ? `
@@ -941,7 +941,7 @@ export const generateReceiptHTML = (bill, settings = {}, mode = 'invoice') => {
                         <div class="footer-right">
                             <div class="summ-row"><span>SUBTOTAL</span><span>${currency} ${Number(bill.totals?.subtotal || 0).toFixed(2)}</span></div>
                             
-                            ${(Number(bill.totals?.tax || 0) > 0) ? (isInter ? `
+                            ${(Number(bill.totals?.tax || 0) > 0) ? (bill.taxType === 'inter' ? `
                                 <div class="summ-row"><span>IGST</span><span>${currency} ${Number(bill.totals.tax).toFixed(2)}</span></div>
                             ` : `
                                 <div class="summ-row"><span>CGST</span><span>${currency} ${Number(bill.totals.tax / 2).toFixed(2)}</span></div>
@@ -1118,6 +1118,79 @@ export const generateBusinessReportHTML = (data, period = 'This Week') => {
       </body>
     </html>
     `;
+};
+
+export const printBarcode = async (productName, barcodeValue, settings = {}) => {
+    const storeName = settings?.store?.name || 'Kwiq Billing';
+    try {
+        const html = `
+        <html>
+        <head>
+            <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap" rel="stylesheet">
+            <style>
+                body {
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100%;
+                    width: 100%;
+                    background: #fff;
+                    font-family: Arial, sans-serif;
+                }
+                .label {
+                    text-align: center;
+                    padding: 5px;
+                }
+                .store-name {
+                    font-size: 11px;
+                    font-weight: 900;
+                    margin-bottom: 2px;
+                    text-transform: uppercase;
+                    letter-spacing: 1px;
+                }
+                .product-name {
+                    font-size: 9px;
+                    color: #444;
+                    margin-bottom: 4px;
+                }
+                .barcode {
+                    font-family: 'Libre Barcode 39', cursive;
+                    font-size: 52px;
+                    margin: 0;
+                    padding: 0;
+                    line-height: 1;
+                }
+                .barcode-text {
+                    font-size: 10px;
+                    margin-top: 1px;
+                    letter-spacing: 2px;
+                    font-weight: bold;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="label">
+                <div class="store-name">${storeName}</div>
+                <div class="product-name">${productName}</div>
+                <div class="barcode">*${barcodeValue}*</div>
+                <div class="barcode-text">${barcodeValue}</div>
+            </div>
+        </body>
+        </html>
+        `;
+
+        await Print.printAsync({
+            html,
+            width: 188, // ~50mm in points
+            height: 94,  // ~25mm in points
+        });
+    } catch (error) {
+        console.error('Barcode Print error:', error);
+        Alert.alert('Error', 'Failed to print barcode');
+    }
 };
 
 export const printReceipt = async (bill, arg2, arg3, arg4) => {

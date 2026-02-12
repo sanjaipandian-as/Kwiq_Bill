@@ -9,45 +9,34 @@ import {
     Platform,
     Image,
     Dimensions,
-    TextInput
+    TextInput,
+    KeyboardAvoidingView,
+    Modal as RNModal,
+    StatusBar
 } from 'react-native';
 import {
     Upload,
     FileText,
-    ExternalLink,
-    ChevronDown,
+    X,
     Calendar as CalendarIcon,
     Tag,
     CreditCard,
-    AlignLeft,
     DollarSign,
-    Briefcase
+    Check,
+    Image as ImageIcon,
+    Camera,
+    ChevronRight,
+    ArrowLeft
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import { Modal } from '../../components/ui/Modal';
-import { Input } from '../../components/ui/Input';
-import { Button } from '../../components/ui/Button';
-import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useExpenses } from '../../context/ExpenseContext';
 import {
     PAYMENT_METHODS,
     SAMPLE_CATEGORIES,
 } from '../../utils/expenseConstants';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-const FieldContainer = ({ label, children, icon: Icon, required }) => (
-    <View style={styles.fieldGroup}>
-        <View style={styles.labelRow}>
-            {Icon && <Icon size={14} color="#64748b" style={{ marginRight: 6 }} />}
-            <Text style={styles.fieldLabel}>
-                {label} {required && <Text style={styles.required}>*</Text>}
-            </Text>
-        </View>
-        {children}
-    </View>
-);
+const { width, height } = Dimensions.get('window');
 
 const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
     const { addExpense, updateExpense } = useExpenses();
@@ -69,10 +58,6 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
 
     const [receiptFile, setReceiptFile] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [showReceiptConfirmation, setShowReceiptConfirmation] = useState(false);
-    const [activePicker, setActivePicker] = useState(null);
-    const [isReplacing, setIsReplacing] = useState(false);
-    const [previewUri, setPreviewUri] = useState(null);
 
     useEffect(() => {
         if (expense) {
@@ -82,23 +67,26 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
                 date: expense.date ? new Date(expense.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
             });
         } else {
-            setFormData({
-                title: '',
-                amount: '',
-                category: '',
-                date: new Date().toISOString().split('T')[0],
-                description: '',
-                paymentMethod: 'Cash',
-                reference: '',
-                tags: [],
-                isRecurring: false,
-                frequency: 'one-time',
-                nextDueDate: ''
-            });
+            resetForm();
         }
         setReceiptFile(null);
-        setIsReplacing(false);
     }, [expense, isOpen]);
+
+    const resetForm = () => {
+        setFormData({
+            title: '',
+            amount: '',
+            category: '',
+            date: new Date().toISOString().split('T')[0],
+            description: '',
+            paymentMethod: 'Cash',
+            reference: '',
+            tags: [],
+            isRecurring: false,
+            frequency: 'one-time',
+            nextDueDate: ''
+        });
+    };
 
     const handlePickImage = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -114,9 +102,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
         });
 
         if (!result.canceled) {
-            const selectedUri = result.assets[0].uri;
-            setReceiptFile(selectedUri);
-            handleChange('receiptUrl', selectedUri);
+            setReceiptFile(result.assets[0].uri);
         }
     };
 
@@ -126,7 +112,7 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
 
     const handleSubmit = async () => {
         if (!formData.title || !formData.amount || !formData.category) {
-            Alert.alert('Required Fields', 'Please fill Title, Amount, and Category');
+            Alert.alert('Missing Fields', 'Please fill in the Amount, Title, and Category.');
             return;
         }
 
@@ -147,296 +133,514 @@ const ExpenseModal = ({ isOpen, onClose, expense = null }) => {
         }
     };
 
-    const renderSelect = (label, currentVal, options, onSelect, pickerKey, icon) => {
-        const isPickerOpen = activePicker === pickerKey;
-        return (
-            <View style={[styles.fieldContainer, { zIndex: isPickerOpen ? 100 : 1 }]}>
-                <Text style={styles.labelSmall}>{label}</Text>
-                <TouchableOpacity
-                    activeOpacity={0.7}
-                    style={[styles.selectTrigger, isPickerOpen && styles.selectTriggerActive]}
-                    onPress={() => setActivePicker(isPickerOpen ? null : pickerKey)}
-                >
-                    <Text style={[styles.selectText, !currentVal && { color: '#94a3b8' }]}>
-                        {currentVal || `Select ${label.replace('*', '').trim()}`}
-                    </Text>
-                    <ChevronDown size={20} color={isPickerOpen ? '#000' : '#64748b'} />
-                </TouchableOpacity>
-                {isPickerOpen && (
-                    <View style={styles.optionsList}>
-                        <ScrollView bounces={false} style={{ maxHeight: 200 }} showsVerticalScrollIndicator={false}>
-                            {options.map((opt, idx) => {
-                                const val = typeof opt === 'string' ? opt : opt.value;
-                                const optLabel = typeof opt === 'string' ? opt : opt.label;
-                                return (
-                                    <TouchableOpacity
-                                        key={val}
-                                        style={[styles.optionItem, idx === options.length - 1 && { borderBottomWidth: 0 }]}
-                                        onPress={() => {
-                                            onSelect(val);
-                                            setActivePicker(null);
-                                        }}
-                                    >
-                                        <Text style={[styles.dropdownItemText, currentVal === val && styles.dropdownItemTextActive]}>
-                                            {optLabel}
-                                        </Text>
-                                        {currentVal === val && <View style={styles.activeDot} />}
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </ScrollView>
-                    </View>
-                )}
-            </View>
-        );
+    const setQuickDate = (type) => {
+        const now = new Date();
+        if (type === 'yesterday') {
+            now.setDate(now.getDate() - 1);
+        }
+        handleChange('date', now.toISOString().split('T')[0]);
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={isEditMode ? 'Edit Transaction' : 'Record Expense'}>
-            <View style={styles.modalBody}>
-                <ScrollView
-                    style={styles.formScroll}
-                    contentContainerStyle={styles.formScrollContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
+        <RNModal
+            visible={isOpen}
+            animationType="slide"
+            onRequestClose={onClose}
+            presentationStyle="pageSheet"
+        >
+            <View style={styles.container}>
+                <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
+                {/* Header */}
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                        <X size={24} color="#1e293b" />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>{isEditMode ? 'Edit Expense' : 'New Expense'}</Text>
+                    <View style={{ width: 40 }} />
+                </View>
+
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
                 >
-                    <View style={styles.formContainer}>
-                        <View style={styles.fieldContainer}>
-                            <Text style={styles.labelSmall}>EXPENSE TITLE <Text style={styles.required}>*</Text></Text>
-                            <Input
-                                value={formData.title}
-                                onChangeText={(val) => handleChange('title', val)}
-                                placeholder="Marketing / Inventory / Rent..."
-                                style={styles.premiumInput}
+                    <ScrollView
+                        style={styles.content}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingBottom: 100 }}
+                    >
+                        {/* Hero Amount Input */}
+                        <View style={styles.amountSection}>
+                            <Text style={styles.currencySymbol}>₹</Text>
+                            <TextInput
+                                value={formData.amount}
+                                onChangeText={(val) => handleChange('amount', val)}
+                                placeholder="0"
+                                placeholderTextColor="#cbd5e1"
+                                keyboardType="numeric"
+                                style={styles.amountInput}
+                                autoFocus={!isEditMode}
                             />
                         </View>
 
-                        <View style={styles.row}>
-                            <View style={{ flex: 1.2 }}>
-                                <Text style={styles.labelSmall}>AMOUNT <Text style={styles.required}>*</Text></Text>
-                                <Input
-                                    value={formData.amount}
-                                    onChangeText={(val) => handleChange('amount', val)}
-                                    placeholder="0.00"
-                                    keyboardType="numeric"
-                                    style={[styles.premiumInput, styles.amountInput]}
+                        {/* Main Form Fields */}
+                        <View style={styles.formSection}>
+
+                            {/* Title Input */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>What is this for?</Text>
+                                <TextInput
+                                    value={formData.title}
+                                    onChangeText={(val) => handleChange('title', val)}
+                                    placeholder="e.g. Office Supplies, Client Lunch"
+                                    placeholderTextColor="#94a3b8"
+                                    style={styles.textInput}
                                 />
                             </View>
-                            <View style={{ flex: 1 }}>
-                                {renderSelect('CATEGORY *', formData.category, SAMPLE_CATEGORIES, (val) => handleChange('category', val), 'category')}
-                            </View>
-                        </View>
-                    </View>
 
-                    <View style={styles.row}>
-                        <View style={{ flex: 1 }}>
-                            {renderSelect('PAYMENT MODE', formData.paymentMethod, PAYMENT_METHODS, (val) => handleChange('paymentMethod', val), 'pMethod')}
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.labelSmall}>TRANSACTION DATE</Text>
-                            <Input
-                                value={formData.date}
-                                onChangeText={(val) => handleChange('date', val)}
-                                placeholder="YYYY-MM-DD"
-                                style={styles.premiumInput}
-                            />
-                        </View>
-                    </View>
-
-                    <View style={styles.fieldContainer}>
-                        <Text style={styles.labelSmall}>NOTES & DESCRIPTION</Text>
-                        <Input
-                            value={formData.description}
-                            onChangeText={(val) => handleChange('description', val)}
-                            placeholder="Add business notes or reference IDs..."
-                            multiline
-                            numberOfLines={3}
-                            style={[styles.premiumInput, styles.textArea]}
-                        />
-                    </View>
-
-                    <View style={styles.fieldContainer}>
-                        <Text style={styles.labelSmall}>RECEIPT / DOCUMENTATION</Text>
-                        {isEditMode && expense?.receiptUrl && !receiptFile && !isReplacing ? (
-                            <View style={styles.existingReceipt}>
-                                <View style={styles.receiptHeader}>
-                                    <View style={styles.attachedBadge}>
-                                        <FileText size={12} color="#000" />
-                                        <Text style={styles.receiptLabelText}>Attachment Found</Text>
-                                    </View>
-                                    <TouchableOpacity onPress={() => setPreviewUri(expense.receiptUrl)} style={styles.viewLink}>
-                                        <ExternalLink size={14} color="#000" />
-                                        <Text style={styles.viewLinkText}>Preview</Text>
-                                    </TouchableOpacity>
-                                </View>
-                                <TouchableOpacity
-                                    onPress={() => setShowReceiptConfirmation(true)}
-                                    style={styles.replaceBtn}
+                            {/* Category Selector */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Category</Text>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={styles.categoryScroll}
                                 >
-                                    <Text style={styles.replaceBtnText}>Replace with New File</Text>
-                                </TouchableOpacity>
+                                    {SAMPLE_CATEGORIES.map((cat, index) => {
+                                        const isSelected = formData.category === cat;
+                                        return (
+                                            <TouchableOpacity
+                                                key={index}
+                                                onPress={() => handleChange('category', cat)}
+                                                style={[styles.categoryChip, isSelected && styles.categoryChipSelected]}
+                                            >
+                                                <View style={[styles.catIcon, isSelected && styles.catIconSelected]}>
+                                                    <Tag size={14} color={isSelected ? '#fff' : '#64748b'} />
+                                                </View>
+                                                <Text style={[styles.categoryText, isSelected && styles.categoryTextSelected]}>
+                                                    {cat}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
                             </View>
-                        ) : (
-                            <TouchableOpacity
-                                onPress={handlePickImage}
-                                style={[styles.uploadBox, receiptFile && styles.uploadBoxActive]}
-                            >
-                                {receiptFile ? (
-                                    <View style={styles.previewActive}>
-                                        <Image source={{ uri: receiptFile }} style={styles.miniPreview} />
-                                        <View style={styles.previewInfo}>
-                                            <Text style={styles.previewTitle}>Attachment Selected</Text>
-                                            <Text style={styles.previewSub}>Click to change</Text>
-                                        </View>
-                                        <TouchableOpacity onPress={() => setReceiptFile(null)} style={styles.removeBtn}>
-                                            <Text style={styles.removeBtnText}>Remove</Text>
+
+                            {/* Payment Method */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Payment Method</Text>
+                                <View style={styles.paymentMethodsRow}>
+                                    {PAYMENT_METHODS.map((method) => {
+                                        const isSelected = formData.paymentMethod === method;
+                                        return (
+                                            <TouchableOpacity
+                                                key={method}
+                                                onPress={() => handleChange('paymentMethod', method)}
+                                                style={[styles.paymentChip, isSelected && styles.paymentChipSelected]}
+                                            >
+                                                <Text style={[styles.paymentText, isSelected && styles.paymentTextSelected]}>
+                                                    {method}
+                                                </Text>
+                                                {isSelected && <Check size={14} color="#2563eb" />}
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+
+                            {/* Date Selection */}
+                            <View style={[styles.inputGroup, { marginTop: 10 }]}>
+                                <Text style={styles.label}>Date</Text>
+                                <View style={styles.dateControlRow}>
+                                    <View style={styles.dateInputWrapper}>
+                                        <CalendarIcon size={18} color="#64748b" />
+                                        <TextInput
+                                            value={formData.date}
+                                            onChangeText={(val) => handleChange('date', val)}
+                                            placeholder="YYYY-MM-DD"
+                                            style={styles.dateInput}
+                                        />
+                                    </View>
+                                    <View style={styles.quickDateRow}>
+                                        <TouchableOpacity onPress={() => setQuickDate('today')} style={styles.quickDateBtn}>
+                                            <Text style={styles.quickDateText}>Today</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => setQuickDate('yesterday')} style={styles.quickDateBtn}>
+                                            <Text style={styles.quickDateText}>Yesterday</Text>
                                         </TouchableOpacity>
                                     </View>
-                                ) : (
-                                    <>
-                                        <View style={styles.uploadIconBg}>
-                                            <Upload size={24} color="#2563eb" />
-                                        </View>
-                                        <Text style={styles.uploadTitle}>Upload Receipt</Text>
-                                        <Text style={styles.uploadSub}>PDF or Image (Max 5MB)</Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                </ScrollView>
+                                </View>
+                            </View>
 
+                            {/* Receipt Upload */}
+                            <View style={[styles.inputGroup, { marginTop: 10 }]}>
+                                <Text style={styles.label}>Receipt Attachment</Text>
+                                <TouchableOpacity onPress={handlePickImage} style={styles.receiptCard}>
+                                    {receiptFile || (isEditMode && expense?.receiptUrl) ? (
+                                        <View style={styles.receiptPreview}>
+                                            <View style={styles.receiptIconBg}>
+                                                <FileText size={24} color="#2563eb" />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.receiptName}>
+                                                    {receiptFile ? 'New Receipt Selected' : 'Existing Receipt Attached'}
+                                                </Text>
+                                                <Text style={styles.receiptSub}>Tap to replace</Text>
+                                            </View>
+                                            <View style={styles.checkCircle}>
+                                                <Check size={14} color="#fff" />
+                                            </View>
+                                        </View>
+                                    ) : (
+                                        <View style={styles.uploadPlaceholder}>
+                                            <View style={styles.uploadIconCircle}>
+                                                <Camera size={24} color="#64748b" />
+                                            </View>
+                                            <View>
+                                                <Text style={styles.uploadText}>Upload Receipt</Text>
+                                                <Text style={styles.uploadSubText}>From Gallery</Text>
+                                            </View>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Notes */}
+                            <View style={[styles.inputGroup, { marginTop: 10 }]}>
+                                <Text style={styles.label}>Notes (Optional)</Text>
+                                <TextInput
+                                    value={formData.description}
+                                    onChangeText={(val) => handleChange('description', val)}
+                                    placeholder="Add any additional details..."
+                                    placeholderTextColor="#94a3b8"
+                                    multiline
+                                    style={styles.notesInput}
+                                />
+                            </View>
+                        </View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
+
+                {/* Footer */}
                 <View style={styles.footer}>
-                    <Button
-                        title="Cancel"
-                        onPress={onClose}
-                        variant="ghost"
-                        style={styles.cancelBtn}
-                    />
-                    <Button
-                        title={isSubmitting ? 'PROCESSING...' : (isEditMode ? 'UPDATE EXPENSE' : 'SAVE EXPENSE')}
+                    <TouchableOpacity
+                        style={styles.saveBtn}
                         onPress={handleSubmit}
                         disabled={isSubmitting}
-                        style={styles.saveBtnFull}
-                    />
+                    >
+                        {isSubmitting ? (
+                            <Text style={styles.saveBtnText}>Saving...</Text>
+                        ) : (
+                            <Text style={styles.saveBtnText}>{isEditMode ? 'Update Expense' : 'Save Expense'}</Text>
+                        )}
+                        {!isSubmitting && <ChevronRight size={20} color="#fff" />}
+                    </TouchableOpacity>
                 </View>
             </View>
-
-            <ConfirmationModal
-                isOpen={showReceiptConfirmation}
-                onClose={() => setShowReceiptConfirmation(false)}
-                onConfirm={() => { setIsReplacing(true); setShowReceiptConfirmation(false); }}
-                title="Replace Proof?"
-                message="Are you sure you want to remove the current attachment? This action cannot be undone."
-            />
-
-            <Modal
-                isOpen={!!previewUri}
-                onClose={() => setPreviewUri(null)}
-                title="Receipt Preview"
-            >
-                <View style={styles.proPreviewContainer}>
-                    <Image
-                        source={{ uri: previewUri }}
-                        style={styles.proPreviewImage}
-                    />
-                </View>
-            </Modal>
-        </Modal>
+        </RNModal>
     );
 };
 
 const styles = StyleSheet.create({
-    contentWrapper: { maxHeight: SCREEN_HEIGHT * 0.8, backgroundColor: '#fff' },
-    scrollView: { width: '100%' },
-    scrollContent: { paddingVertical: 10, paddingBottom: 40 },
-    formContainer: { paddingHorizontal: 24, gap: 24 },
-    fieldContainer: { gap: 10 },
-    labelSmall: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1, marginLeft: 4 },
-    required: { color: '#ef4444' },
-    row: { flexDirection: 'row', gap: 16 },
-    premiumInput: {
-        backgroundColor: '#fff',
-        borderColor: '#e2e8f0',
-        borderWidth: 1.5,
-        borderRadius: 16,
-        paddingHorizontal: 16,
-        height: 52,
-        fontWeight: '700',
-        color: '#000'
-    },
-    amountInput: { fontSize: 18, color: '#ef4444' },
-    textArea: { height: 100, textAlignVertical: 'top', paddingTop: 16 },
-    selectTrigger: {
-        height: 52,
-        borderWidth: 1.5,
-        borderColor: '#e2e8f0',
-        borderRadius: 16,
-        backgroundColor: '#fff',
+    container: { flex: 1, backgroundColor: '#ffffff' },
+
+    header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 16,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 15,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#f8fafc',
     },
-    selectTriggerActive: { borderColor: '#000' },
-    selectText: { fontSize: 15, fontWeight: '700', color: '#000' },
-    optionsList: {
+    closeBtn: {
+        padding: 8,
+        borderRadius: 12,
+        backgroundColor: '#f1f5f9',
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#1e293b',
+    },
+
+    content: { flex: 1 },
+
+    // Amount Section
+    amountSection: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 35,
+        backgroundColor: '#fff',
+        flexDirection: 'row',
+    },
+    currencySymbol: {
+        fontSize: 32,
+        fontWeight: '600',
+        color: '#94a3b8',
+        marginRight: 4,
+        marginTop: -6
+    },
+    amountInput: {
+        fontSize: 48,
+        fontWeight: '800',
+        color: '#0f172a',
+        minWidth: 100,
+        padding: 0,
+    },
+
+    // Form Section
+    formSection: {
+        paddingHorizontal: 24,
+        gap: 24,
+    },
+    inputGroup: {
+        gap: 12,
+    },
+    label: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#64748b',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+
+    textInput: {
+        fontSize: 18,
+        color: '#0f172a',
+        borderBottomWidth: 2,
+        borderBottomColor: '#f1f5f9',
+        paddingVertical: 8,
+        fontWeight: '600',
+    },
+
+    // Category Chips
+    categoryScroll: {
+        gap: 10,
+        paddingRight: 20,
+    },
+    categoryChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 14,
+        backgroundColor: '#f8fafc',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+    },
+    categoryChipSelected: {
+        backgroundColor: '#1e293b',
+        borderColor: '#1e293b',
+        elevation: 2,
+        shadowColor: '#1e293b',
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+    },
+    catIcon: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#e2e8f0',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    catIconSelected: {
+        backgroundColor: 'rgba(255,255,255,0.2)',
+    },
+    categoryText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#64748b',
+    },
+    categoryTextSelected: {
+        color: '#fff',
+    },
+
+    // Date
+    dateControlRow: {
+        flexDirection: 'row',
+        gap: 12
+    },
+    dateInputWrapper: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: '#f8fafc',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+    },
+    dateInput: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#0f172a',
+    },
+    quickDateRow: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    quickDateBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        backgroundColor: '#f1f5f9',
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#f1f5f9'
+    },
+    quickDateText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#475569',
+    },
+
+    // Payment Methods
+    paymentMethodsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    paymentChip: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    paymentChipSelected: {
+        borderColor: '#2563eb',
+        backgroundColor: '#eff6ff',
+    },
+    paymentText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#64748b',
+    },
+    paymentTextSelected: {
+        color: '#2563eb',
+        fontWeight: '600',
+    },
+
+    // Receipt
+    receiptCard: {
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 16,
+        padding: 16,
+        borderStyle: 'dashed',
+    },
+    uploadPlaceholder: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+    },
+    uploadIconCircle: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#f1f5f9',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    uploadText: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#1e293b',
+    },
+    uploadSubText: {
+        fontSize: 12,
+        color: '#94a3b8',
+        marginTop: 2
+    },
+    receiptPreview: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+    },
+    receiptIconBg: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        backgroundColor: '#eff6ff',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    receiptName: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    receiptSub: {
+        fontSize: 12,
+        color: '#64748b',
+    },
+    checkCircle: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#10b981',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+
+    // Notes
+    notesInput: {
+        backgroundColor: '#f8fafc',
+        borderRadius: 16,
+        padding: 16,
+        height: 100,
+        textAlignVertical: 'top',
+        fontSize: 15,
+        color: '#0f172a',
+        lineHeight: 22
+    },
+
+    // Footer
+    footer: {
         position: 'absolute',
-        top: 85,
+        bottom: 0,
         left: 0,
         right: 0,
         backgroundColor: '#fff',
+        paddingHorizontal: 24,
+        paddingVertical: 16,
+        paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+        borderTopWidth: 1,
+        borderTopColor: '#f1f5f9',
+    },
+    saveBtn: {
+        backgroundColor: '#0f172a',
+        height: 56,
         borderRadius: 20,
-        borderWidth: 1.5,
-        borderColor: '#000',
-        elevation: 10,
-        shadowColor: '#000',
-        shadowOpacity: 0.15,
-        shadowRadius: 15,
-        zIndex: 9999,
-        padding: 8
-    },
-    optionItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-    optionText: { fontSize: 15, color: '#475569', fontWeight: '600' },
-    optionTextActive: { color: '#000', fontWeight: '800' },
-
-    existingReceipt: {
-        padding: 20,
-        backgroundColor: '#f8fafc',
-        borderRadius: 24,
-        borderWidth: 1.5,
-        borderColor: '#e2e8f0',
-        gap: 15
-    },
-    receiptHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    attachedBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-    receiptLabelText: { fontSize: 11, fontWeight: '800', color: '#000', textTransform: 'uppercase' },
-    viewLink: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    viewLinkText: { fontSize: 13, fontWeight: '800', color: '#000', textDecorationLine: 'underline' },
-    replaceBtn: {
-        height: 44,
-        borderRadius: 12,
-        borderWidth: 1.5,
-        borderColor: '#000',
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#fff'
+        gap: 8,
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.2,
+        shadowRadius: 16,
+        elevation: 6,
     },
-    replaceBtnText: { fontSize: 12, fontWeight: '800', color: '#000', textTransform: 'uppercase' },
-
-    footer: {
-        flexDirection: 'row',
-        padding: 24,
-        paddingBottom: Platform.OS === 'ios' ? 40 : 24,
-        borderTopWidth: 1.5,
-        borderTopColor: '#f1f5f9',
-        gap: 12
+    saveBtnText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#fff',
     },
-    cancelBtn: { flex: 1, height: 56, borderRadius: 18 },
-    saveBtnFull: { flex: 2, height: 56, borderRadius: 18, backgroundColor: '#000' },
-
-    previewContainer: { height: SCREEN_HEIGHT * 0.6, width: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', borderRadius: 24, overflow: 'hidden' },
-    previewImage: { width: '100%', height: '100%', resizeMode: 'contain' }
 });
 
 export default ExpenseModal;

@@ -23,7 +23,8 @@ import BottomFunctionBar from './components/BottomFunctionBar';
 import { DiscountModal, RemarksModal, AdditionalChargesModal, LoyaltyPointsModal } from './components/ActionModals';
 import CustomerSearchModal from './components/CustomerSearchModal';
 import CustomerCaptureModal from './components/CustomerCaptureModal';
-import InvoiceDeliveryModal from '../../components/InvoiceDeliveryModal';
+
+
 
 // Wizard Steps (Optional/Mobile Flow)
 import ProductStep from './components/steps/ProductStep';
@@ -101,9 +102,6 @@ export default function BillingPage({ navigation, route }) {
   const [activeBillId, setActiveBillId] = useState(1);
   const [selectedItemId, setSelectedItemId] = useState(null);
 
-  // --- WhatsApp Delivery State ---
-  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
-  const [lastSavedInvoice, setLastSavedInvoice] = useState(null);
 
   // --- Variant Selection State ---
   const [showVariantModal, setShowVariantModal] = useState(false);
@@ -370,8 +368,27 @@ export default function BillingPage({ navigation, route }) {
 
   // Cart Actions (Exposed to Child)
   const updateQuantity = (id, newQty) => {
-    if (newQty < 1) return;
-    const newCart = currentBill.cart.map(item => item.id === id ? { ...item, quantity: newQty, total: newQty * item.price - (item.discount || 0) } : item);
+    // Allow fractional quantities (e.g. 0.5 kg), but ensure > 0
+    if (parseFloat(newQty) <= 0 || isNaN(parseFloat(newQty))) return;
+    const sNewQty = parseFloat(newQty); // Handle string input
+
+    const item = currentBill.cart.find(i => i.id === id);
+    if (!item) return;
+
+    // Check Stock Limit
+    const dbId = item._dbId || item.id;
+    const productInDb = products.find(p => p.id === dbId);
+
+    // If product exists in DB, check stock
+    if (productInDb) {
+      const availableStock = parseFloat(productInDb.stock || 0);
+      if (sNewQty > availableStock) {
+        Alert.alert("Stock Limit", `Stock quantity only ${availableStock}. You can't add above this.`);
+        return;
+      }
+    }
+
+    const newCart = currentBill.cart.map(i => i.id === id ? { ...i, quantity: sNewQty, total: sNewQty * i.price - (i.discount || 0) } : i);
     updateCurrentBill({ cart: newCart });
   };
 
@@ -402,37 +419,48 @@ export default function BillingPage({ navigation, route }) {
     const cartItemId = variantName ? `${product.id}-${variantName}` : product.id;
     const displayName = `${product.name}${variantSuffix}`;
 
+    // STOCK CHECK BEFORE ADDING
+    const currentStock = parseFloat(product.stock || 0);
+    if (currentStock <= 0) {
+      Alert.alert("Stock Limit", "Stock is empty! Cannot add this item.");
+      return;
+    }
+
     const exists = currentBill.cart.find(i => i.id === cartItemId);
-    const cartItem = exists || {
-      ...product,
-      id: cartItemId, // Override ID for cart tracking
-      _dbId: product.id, // PERSIST ORIGINAL DB ID FOR STOCK UPDATES
-      name: displayName,
-      variantName: variantName, // STORE VARIANT NAME
-      quantity: 0, // Will be incremented
-      price: variantPrice, // Use variant price if available
-      total: variantPrice,
-      discount: 0,
-      taxRate: product.taxRate || 18,
-      unit: product.unit || 'pcs'
-    };
 
     if (exists) {
+      if (exists.quantity + 1 > currentStock) {
+        Alert.alert("Stock Limit", `Stock quantity only ${currentStock}. You can't add above this.`);
+        return;
+      }
       updateQuantity(cartItemId, exists.quantity + 1);
       setSelectedItemId(cartItemId);
     } else {
-      // Stock warning check
-      const currentStock = parseFloat(product.stock || 0);
+      const cartItem = {
+        ...product,
+        id: cartItemId, // Override ID for cart tracking
+        _dbId: product.id, // PERSIST ORIGINAL DB ID FOR STOCK UPDATES
+        name: displayName,
+        variantName: variantName, // STORE VARIANT NAME
+        quantity: 1, // Will be incremented
+        price: variantPrice, // Use variant price if available
+        total: variantPrice,
+        discount: 0,
+        taxRate: product.taxRate || 18,
+        unit: product.unit || 'pcs'
+      };
+
+      // Min Stock Warning (Optional, but keep logic if stock > 0 but <= min)
       const minStock = parseFloat(product.min_stock || 0);
       if (currentStock <= minStock) {
+        // Just a warning, but still allow if stock > 0
         Alert.alert(
           "Low Stock Warning",
-          `${product.name} has only ${currentStock} remaining in stock (Min: ${minStock}). Do you want to continue?`,
+          `${product.name} has only ${currentStock} remaining.`,
           [
             { text: "Cancel", style: "cancel" },
             {
-              text: "Continue",
-              onPress: () => {
+              text: "Add", onPress: () => {
                 const newItem = { ...cartItem, quantity: 1 };
                 updateCurrentBill({ cart: [...currentBill.cart, newItem] });
                 setSelectedItemId(cartItemId);
@@ -711,15 +739,7 @@ export default function BillingPage({ navigation, route }) {
       const invoiceFormat = settings?.invoice?.paperSize === '58mm' || settings?.invoice?.paperSize === '80mm' ? 'A4' : (settings?.invoice?.paperSize || 'A4');
       await printReceipt(savedBill, invoiceFormat, settings, 'invoice');
 
-      // 4. Action: Show WhatsApp Delivery Modal
-      if (currentBill.customer?.phone) {
-        setLastSavedInvoice({
-          ...savedBill,
-          customer: currentBill.customer,
-          customerMobile: currentBill.customer.phone
-        });
-        setShowDeliveryModal(true);
-      }
+
 
       showToast("Invoice Finalized Successfully", "success");
       fetchProducts();
@@ -742,7 +762,7 @@ export default function BillingPage({ navigation, route }) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
 
@@ -751,61 +771,63 @@ export default function BillingPage({ navigation, route }) {
           colors={['#000000', '#1a1a1a']}
           style={styles.headerGradient}
         >
-          <View style={styles.topBar}>
-            <View>
-              <Text style={styles.headerTitle}>Billing</Text>
-              <Text style={styles.headerSubtitle}>{activeBills.length} Active Sessions</Text>
-            </View>
-            <View style={styles.headerActions}>
-              <TouchableOpacity style={styles.headerIconBtn} onPress={() => setIsScannerOpen(true)}>
-                <Scan size={20} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: '#22c55e' }]} onPress={addNewBill}>
-                <Plus size={22} color="#000" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Functional Tabs */}
-          <View style={styles.tabsContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
-              {activeBills.map((bill) => (
-                <TouchableOpacity
-                  key={bill.id}
-                  style={[styles.tabItem, bill.id === activeBillId && styles.activeTabItem, { flexDirection: 'row', gap: 8 }]}
-                  onPress={() => setActiveBillId(bill.id)}
-                >
-                  <Text style={[styles.tabItemText, bill.id === activeBillId && styles.activeTabItemText]}>
-                    Bill #{bill.id}
-                  </Text>
-
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      closeBill(bill.id);
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    style={{
-                      backgroundColor: bill.id === activeBillId ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      borderRadius: 10,
-                      padding: 2
-                    }}
-                  >
-                    <X size={14} color={bill.id === activeBillId ? "#fff" : "rgba(255,255,255,0.5)"} />
-                  </TouchableOpacity>
-
-                  {bill.id === activeBillId && <View style={styles.activeIndicator} />}
+          <SafeAreaView edges={['top']}>
+            <View style={styles.topBar}>
+              <View>
+                <Text style={styles.headerTitle}>Billing</Text>
+                <Text style={styles.headerSubtitle}>{activeBills.length} Active Sessions</Text>
+              </View>
+              <View style={styles.headerActions}>
+                <TouchableOpacity style={styles.headerIconBtn} onPress={() => setIsScannerOpen(true)}>
+                  <Scan size={20} color="#fff" />
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
+                <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: '#22c55e' }]} onPress={addNewBill}>
+                  <Plus size={22} color="#000" />
+                </TouchableOpacity>
+              </View>
+            </View>
 
-            <TouchableOpacity
-              style={styles.billHistoryBtn}
-              onPress={() => setShowBillSelector(!showBillSelector)}
-            >
-              <ChevronDown size={20} color="rgba(255,255,255,0.6)" />
-            </TouchableOpacity>
-          </View>
+            {/* Functional Tabs */}
+            <View style={styles.tabsContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20 }}>
+                {activeBills.map((bill) => (
+                  <TouchableOpacity
+                    key={bill.id}
+                    style={[styles.tabItem, bill.id === activeBillId && styles.activeTabItem, { flexDirection: 'row', gap: 8 }]}
+                    onPress={() => setActiveBillId(bill.id)}
+                  >
+                    <Text style={[styles.tabItemText, bill.id === activeBillId && styles.activeTabItemText]}>
+                      Bill #{bill.id}
+                    </Text>
+
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        closeBill(bill.id);
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      style={{
+                        backgroundColor: bill.id === activeBillId ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)',
+                        borderRadius: 10,
+                        padding: 2
+                      }}
+                    >
+                      <X size={14} color={bill.id === activeBillId ? "#fff" : "rgba(255,255,255,0.5)"} />
+                    </TouchableOpacity>
+
+                    {bill.id === activeBillId && <View style={styles.activeIndicator} />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={styles.billHistoryBtn}
+                onPress={() => setShowBillSelector(!showBillSelector)}
+              >
+                <ChevronDown size={20} color="rgba(255,255,255,0.6)" />
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
         </LinearGradient>
 
         {/* Mode Switcher (Floating) */}
@@ -973,11 +995,8 @@ export default function BillingPage({ navigation, route }) {
             updateCurrentBill({ customer: cust });
           }}
         />
-        <InvoiceDeliveryModal
-          isOpen={showDeliveryModal}
-          onClose={() => setShowDeliveryModal(false)}
-          invoice={lastSavedInvoice}
-        />
+
+
 
         {/* Variant Selection Modal */}
         {
@@ -1056,7 +1075,7 @@ export default function BillingPage({ navigation, route }) {
         />
 
       </KeyboardAvoidingView >
-    </SafeAreaView >
+    </View >
   );
 }
 
@@ -1065,7 +1084,7 @@ const styles = StyleSheet.create({
 
   // Header & Gradient
   headerGradient: {
-    paddingTop: Platform.OS === 'android' ? 10 : 0,
+    paddingTop: 0,
     paddingBottom: 25,
     borderBottomLeftRadius: 40,
     borderBottomRightRadius: 40,
@@ -1080,7 +1099,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 24,
-    marginTop: 15,
+    paddingTop: 10,
     marginBottom: 25,
   },
   headerTitle: { fontSize: 28, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
